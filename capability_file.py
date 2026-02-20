@@ -5,6 +5,17 @@ from pathlib import Path
 
 # Default fallback capabilities if capability_data.json doesn't exist
 DEFAULT_CAPABILITIES: dict[str, dict] = {
+    "small": {  # Ollama qwen2.5:1.5b
+        "mmlu_pro": 0.45,        # general_qa - basic factual knowledge
+        "livecodebench": 0.20,   # code_operation - limited coding ability
+        "gpqa": 0.25,            # multi_step_reasoning - weak reasoning
+        "tau2": 0.15,            # agentic_tool_use - minimal agentic capability
+        "lcr": 0.30,             # long_context - limited context handling
+        "aime_25": 0.15,         # math - basic arithmetic only
+        "hle": 0.01,             # very low human-level evaluation
+        "price_per_1m_input": 0.0,   # Free (local)
+        "price_per_1m_output": 0.0,  # Free (local)
+    },
     "haiku": {
         "mmlu_pro": 0.71,        # general_qa
         "livecodebench": 0.378,  # code_operation

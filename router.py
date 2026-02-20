@@ -40,20 +40,19 @@ def pick_model(classification: Classification) -> tuple[str, str]:
     
     Routing rules:
     1. If classification.escalate is True → sonnet
-    2. Check if haiku's benchmark score clears the difficulty-adjusted threshold
+    2. Check if small model's benchmark score clears the difficulty-adjusted threshold
     3. Check frontier difficulty gate (difficulty > 0.8 AND hle < 0.05)
-    4. Return haiku if it clears, otherwise sonnet
+    4. Return small if it clears, otherwise sonnet
     
     Threshold tuning:
-    - Base threshold: 0.65 (adjust lower to route more to haiku, higher for more conservative)
+    - Base threshold: 0.40 (lower for small local model - qwen2.5:1.5b)
     - Difficulty multiplier: 0.2 (how much difficulty increases threshold)
-    - With real Artificial Analysis data, Haiku 3.5 scores:
-      * mmlu_pro (general_qa): 0.634 - barely misses base threshold
-      * aime_25 (math): 0.721 - passes for easy/medium math tasks
-      * livecodebench (code): 0.314 - always escalates
-      * gpqa (reasoning): 0.408 - always escalates
-      * tau2 (agentic): 0.246 - always escalates
-    - Consider lowering base threshold to 0.55-0.60 for more haiku usage
+    - Ollama qwen2.5:1.5b scores (estimated):
+      * mmlu_pro (general_qa): 0.45 - passes for simple questions
+      * aime_25 (math): 0.15 - only basic arithmetic
+      * livecodebench (code): 0.20 - minimal coding
+      * gpqa (reasoning): 0.25 - weak reasoning
+      * tau2 (agentic): 0.15 - minimal agentic capability
     """
     # Rule 1: Hard escalation from classification
     if classification.escalate:
@@ -62,23 +61,23 @@ def pick_model(classification: Classification) -> tuple[str, str]:
     # Rule 2: Look up eval key and calculate threshold
     category = classification.dominant_category
     eval_key = TASK_TO_EVAL[category]
-    threshold = 0.65 + (classification.difficulty * 0.2)
+    threshold = 0.40 + (classification.difficulty * 0.2)
     
-    haiku_score = CAPABILITY_FILE["haiku"].get(eval_key, 0.0)
-    haiku_hle = CAPABILITY_FILE["haiku"]["hle"]
+    small_score = CAPABILITY_FILE["small"].get(eval_key, 0.0)
+    small_hle = CAPABILITY_FILE["small"]["hle"]
     
     # Rule 3: Frontier difficulty gate
-    is_frontier_task = classification.difficulty > 0.8 and haiku_hle < 0.05
+    is_frontier_task = classification.difficulty > 0.8 and small_hle < 0.05
     
-    # Rule 4: Check if haiku clears threshold
-    if haiku_score >= threshold and not is_frontier_task:
-        return "haiku", f"haiku score {haiku_score:.3f} >= threshold {threshold:.3f} for {category}"
+    # Rule 4: Check if small model clears threshold
+    if small_score >= threshold and not is_frontier_task:
+        return "haiku", f"small model score {small_score:.3f} >= threshold {threshold:.3f} for {category}"
     
     # Otherwise escalate to sonnet
     if is_frontier_task:
-        reason = f"frontier difficulty {classification.difficulty:.2f} with low HLE {haiku_hle:.3f}"
+        reason = f"frontier difficulty {classification.difficulty:.2f} with low HLE {small_hle:.3f}"
     else:
-        reason = f"haiku score {haiku_score:.3f} < threshold {threshold:.3f} for {category}"
+        reason = f"small model score {small_score:.3f} < threshold {threshold:.3f} for {category}"
     
     return "sonnet", reason
 
@@ -100,10 +99,10 @@ def route(prompt: str, force_escalate: bool = False, adapter=None) -> Completion
     """
     start_time = time.time()
     
-    # Use real BedrockAdapter if no adapter provided
+    # Use HybridAdapter (Ollama + Bedrock) if no adapter provided
     if adapter is None:
-        from adapters.bedrock import BedrockAdapter
-        adapter = BedrockAdapter()
+        from adapters.hybrid import HybridAdapter
+        adapter = HybridAdapter()
     
     # Step 1: Handle force escalation
     if force_escalate:
