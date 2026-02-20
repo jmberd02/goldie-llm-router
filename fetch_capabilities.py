@@ -16,15 +16,59 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Mapping from AA metrics to our task categories
-TASK_CATEGORY_MAPPING = {
-    "general_qa": "mmlu_pro",
-    "code_operation": "livecodebench",
-    "multi_step_reasoning": "gpqa",
-    "agentic_tool_use": "tau2",
-    "long_context": "lcr",
-    "math": "aime_25",
-}
+
+def fetch_model_data(api_key: str) -> dict:
+    """Fetch model data from Artificial Analysis API."""
+    url = "https://artificialanalysis.ai/api/v2/data/llms/models"
+    headers = {"x-api-key": api_key}
+    
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()
+
+
+def extract_model_capabilities(model_data: dict, model_name: str) -> Optional[dict]:
+    """Extract relevant capability scores for a specific model."""
+    # Find the model in the data
+    model = None
+    for m in model_data.get("data", []):
+        if model_name.lower() in m.get("model", "").lower():
+            model = m
+            break
+    
+    if not model:
+        return None
+    
+    # Extract evaluation scores
+    evals = model.get("evals", {})
+    
+    # Helper to get math score with fallback chain
+    def get_math_score():
+        return (
+            evals.get("aime_25") or
+            evals.get("math_500") or
+            evals.get("aime") or
+            (evals.get("artificial_analysis_math_index", 0) / 100)
+        )
+    
+    # Extract pricing (convert to per-1M tokens)
+    pricing = model.get("pricing", {})
+    price_input = pricing.get("input", 0) * 1_000_000  # Convert from per-token to per-1M
+    price_output = pricing.get("output", 0) * 1_000_000
+    
+    return {
+        "mmlu_pro": evals.get("mmlu_pro", 0.0),
+        "livecodebench": evals.get("livecodebench", 0.0),
+        "gpqa": evals.get("gpqa", 0.0),
+        "tau2": evals.get("tau2", 0.0),
+        "lcr": evals.get("lcr", 0.0),
+        "aime_25": get_math_score(),
+        "hle": evals.get("hle", 0.0),
+        "price_per_1m_input": price_input,
+        "price_per_1m_output": price_output,
+        "model_name": model.get("model", ""),
+        "quality_index": evals.get("artificial_analysis_intelligence_index", 0) / 100,
+    }
 
 
 def main():
@@ -50,55 +94,77 @@ def main():
         json.dump(model_data, f, indent=2)
     print(f"✓ Saved raw data to capability_data_raw.json")
     
-    # Build name-indexed capability data with structured format
+    # Extract capabilities for our models
+    # Look for Claude Haiku 3.5 and Claude Sonnet 3.5/4
     capabilities = {}
     
     for model_entry in model_data.get("data", []):
-        model_name = model_entry.get("name", "")
-        if not model_name:
-            continue
+        model_name = model_entry.get("name", "").lower()
+        
+        # Match Haiku 3.5 (there's only one version)
+        if "haiku" in model_name and "3.5" in model_name:
+            evals = model_entry.get("evaluations", {})
+            pricing = model_entry.get("pricing", {})
             
-        evals = model_entry.get("evaluations", {})
-        pricing = model_entry.get("pricing", {})
-        
-        # Extract AA metrics
-        aa_metrics = {
-            "mmlu_pro": evals.get("mmlu_pro") or 0.0,
-            "livecodebench": evals.get("livecodebench") or 0.0,
-            "gpqa": evals.get("gpqa") or 0.0,
-            "tau2": evals.get("tau2") or 0.0,
-            "lcr": evals.get("lcr") or 0.0,
-            "aime_25": evals.get("aime_25") or evals.get("math_500") or evals.get("aime") or 0.0,
-            "hle": evals.get("hle") or 0.0,
-        }
-        
-        # Map to task categories
-        task_categories = {}
-        for task_name, metric_name in TASK_CATEGORY_MAPPING.items():
-            task_categories[task_name] = aa_metrics.get(metric_name, 0.0)
-        
-        capabilities[model_name] = {
-            "aa_metrics": aa_metrics,
-            "price": {
+            capabilities["haiku"] = {
+                "mmlu_pro": evals.get("mmlu_pro") or 0.0,
+                "livecodebench": evals.get("livecodebench") or 0.0,
+                "gpqa": evals.get("gpqa") or 0.0,
+                "tau2": evals.get("tau2") or 0.0,
+                "lcr": evals.get("lcr") or 0.0,
+                "aime_25": evals.get("aime_25") or evals.get("math_500") or evals.get("aime") or 0.0,
+                "hle": evals.get("hle") or 0.0,
                 "price_per_1m_input": pricing.get("price_1m_input_tokens") or 0.0,
                 "price_per_1m_output": pricing.get("price_1m_output_tokens") or 0.0,
-            },
-            "slug": model_entry.get("slug", ""),
-            "task_categories": task_categories,
-        }
+                "model_name": model_entry.get("name", ""),
+            }
+            print(f"✓ Found {model_entry.get('name')}")
+        
+        # Match Sonnet 3.5 Oct '24 (most recent stable version on Bedrock)
+        if "sonnet" in model_name and "3.5" in model_name and "oct" in model_name:
+            evals = model_entry.get("evaluations", {})
+            pricing = model_entry.get("pricing", {})
+            
+            capabilities["sonnet"] = {
+                "mmlu_pro": evals.get("mmlu_pro") or 0.0,
+                "livecodebench": evals.get("livecodebench") or 0.0,
+                "gpqa": evals.get("gpqa") or 0.0,
+                "tau2": evals.get("tau2") or 0.0,
+                "lcr": evals.get("lcr") or 0.0,
+                "aime_25": evals.get("aime_25") or evals.get("math_500") or evals.get("aime") or 0.0,
+                "hle": evals.get("hle") or 0.0,
+                "price_per_1m_input": pricing.get("price_1m_input_tokens") or 0.0,
+                "price_per_1m_output": pricing.get("price_1m_output_tokens") or 0.0,
+                "model_name": model_entry.get("name", ""),
+            }
+            print(f"✓ Found {model_entry.get('name')}")
     
-    # Save processed capabilities indexed by name
+    if not capabilities:
+        print("Error: Could not find Haiku or Sonnet models in API data")
+        print("Available Claude models:")
+        for m in model_data.get("data", []):
+            name = m.get("name", "")
+            if "claude" in name.lower():
+                print(f"  - {name}")
+        return 1
+    
+    # Save processed capabilities
     with open("capability_data.json", "w") as f:
         json.dump(capabilities, f, indent=2)
     
     print(f"\n✓ Saved capability data to capability_data.json")
-    print(f"  Total models: {len(capabilities)}")
+    print(f"  Models: {', '.join(capabilities.keys())}")
     
-    # Print some examples
-    print("\nExample models available:")
-    for i, name in enumerate(list(capabilities.keys())[:10]):
-        print(f"  - {name}")
-    print(f"  ... and {len(capabilities) - 10} more")
+    # Print summary
+    print("\nCapability Summary:")
+    for model_id, caps in capabilities.items():
+        print(f"\n{model_id.upper()} ({caps['model_name']}):")
+        print(f"  General QA (mmlu_pro):     {caps['mmlu_pro']:.3f}")
+        print(f"  Code (livecodebench):      {caps['livecodebench']:.3f}")
+        print(f"  Reasoning (gpqa):          {caps['gpqa']:.3f}")
+        print(f"  Agentic (tau2):            {caps['tau2']:.3f}" if caps['tau2'] else "  Agentic (tau2):            N/A")
+        print(f"  Math (aime_25):            {caps['aime_25']:.3f}")
+        print(f"  Pricing: ${caps['price_per_1m_input']:.2f}/${caps['price_per_1m_output']:.2f} per 1M tokens")
     
     return 0
 
