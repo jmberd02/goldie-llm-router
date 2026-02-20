@@ -6,11 +6,6 @@ REQUIRED_ENV_VARS = [
     "AWS_REGION",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
-    "DD_API_KEY",
-    "DD_APP_KEY",
-    "NEO4J_URI",
-    "NEO4J_USER",
-    "NEO4J_PASSWORD",
 ]
 
 
@@ -57,35 +52,13 @@ def check_bedrock():
 
 
 def check_datadog():
-    """Confirm Datadog API key is valid."""
-    try:
-        from datadog_api_client import ApiClient, Configuration
-        from datadog_api_client.v1.api.authentication_api import AuthenticationApi
-        config = Configuration()
-        config.api_key["apiKeyAuth"] = os.getenv("DD_API_KEY")
-        config.api_key["appKeyAuth"] = os.getenv("DD_APP_KEY")
-        with ApiClient(config) as api_client:
-            api = AuthenticationApi(api_client)
-            result = api.validate()
-        print(f"✓ Datadog reachable — valid: {result.get('valid', False)}")
-    except Exception as e:
-        print(f"⚠ Datadog check failed (non-fatal): {e}")
+    """Datadog integration disabled for now."""
+    print("⊘ Datadog check skipped (disabled)")
 
 
 def check_neo4j():
-    """Confirm Neo4j connection with a simple ping query."""
-    try:
-        from neo4j import GraphDatabase
-        driver = GraphDatabase.driver(
-            os.getenv("NEO4J_URI"),
-            auth=(os.getenv("NEO4J_USER"), os.getenv("NEO4J_PASSWORD")),
-        )
-        with driver.session() as session:
-            session.run("RETURN 1 AS ping").single()
-        driver.close()
-        print("✓ Neo4j reachable")
-    except Exception as e:
-        print(f"⚠ Neo4j check failed (non-fatal): {e}")
+    """Neo4j integration disabled for now."""
+    print("⊘ Neo4j check skipped (disabled)")
 
 
 def run():
