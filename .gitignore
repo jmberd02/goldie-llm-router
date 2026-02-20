@@ -31,3 +31,7 @@ ENV/
 .DS_Store
 Thumbs.db
 progress*.md
+
+# Logs
+logs/
+*.log
