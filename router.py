@@ -146,7 +146,7 @@ def route(prompt: str, force_escalate: bool = False, adapter=None) -> Completion
             print(f"[observability] warning: {e}")
         return result
     
-    # Step 2: Classification call (small model returns JSON only)
+    # Step 2: Classification call (Haiku returns JSON only)
     classification_prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(prompt=prompt)
     classification_result = adapter.complete(classification_prompt, "haiku")
     
