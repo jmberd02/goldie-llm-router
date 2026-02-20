@@ -21,6 +21,30 @@ def load_env():
     print("✓ Environment variables loaded")
 
 
+def check_ollama():
+    """Fire a test call to Ollama to confirm it's running."""
+    try:
+        import requests
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "qwen2.5:1.5b",
+                "prompt": "Say OK",
+                "stream": False,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+        text = data.get("response", "").strip()
+        print(f"✓ Ollama (qwen2.5:1.5b) reachable — response: {text[:50]!r}")
+    except Exception as e:
+        print(f"✗ Ollama check failed: {e}")
+        print("  Make sure Ollama is running: ollama serve")
+        print("  And model is pulled: ollama pull qwen2.5:1.5b")
+        sys.exit(1)
+
+
 def check_bedrock():
     """Fire a minimal test call to Bedrock to confirm credentials and model access."""
     try:
@@ -64,6 +88,7 @@ def check_neo4j():
 def run():
     print("\n=== Hybrid LLM Router — Startup Checks ===\n")
     load_env()
+    check_ollama()
     check_bedrock()
     check_datadog()
     check_neo4j()

@@ -1,12 +1,26 @@
 # Hybrid LLM Router
 
-Routes incoming prompts to a small or large model based on task classification
-and Artificial Analysis benchmark scores.
+Routes incoming prompts between:
+- **Small model**: Ollama (qwen2.5:1.5b) - free, local
+- **Large model**: AWS Bedrock (Claude 3.5 Sonnet) - cloud, paid
+
+Routing decisions based on task classification and Artificial Analysis benchmark scores.
+
+## Prerequisites
+
+1. **Ollama** - Install and run locally:
+   ```bash
+   # Install Ollama (see https://ollama.ai)
+   ollama serve
+   ollama pull qwen2.5:1.5b
+   ```
+
+2. **AWS Credentials** - For Bedrock access (large model only)
 
 ## Setup
 ```bash
 pip install -r requirements.txt
-cp .env .env.local  # fill in your keys
+cp .env .env.local  # fill in your AWS keys
 ```
 
 ### Fetch Latest Capability Data (Optional)
@@ -34,9 +48,18 @@ streamlit run app.py
 - `models.py`         — shared dataclasses (Classification, CompletionResult)
 - `capability_file.py`— Artificial Analysis benchmark scores per model
 - `router.py`         — classification prompt + routing decision logic
-- `startup.py`        — env loading + connectivity checks (Bedrock, Datadog, Neo4j)
-- `adapters/`         — Bedrock adapter (swap for Gemini/local on Saturday)
+- `startup.py`        — env loading + connectivity checks (Ollama, Bedrock)
+- `adapters/`         — HybridAdapter (Ollama + Bedrock), OllamaAdapter, BedrockAdapter
 - `tools/`            — mocked demo tools
-- `observability.py`  — Datadog metrics + Neo4j graph logging
+- `observability.py`  — stdout logging (Datadog/Neo4j disabled)
 - `app.py`            — Streamlit UI
 - `fetch_capabilities.py` — Script to fetch latest benchmark data from Artificial Analysis API
+
+## Model Routing
+
+The router uses a three-step process:
+1. **Classify** - Small model (Ollama) analyzes the prompt and returns JSON classification
+2. **Route** - Decision logic picks small or large based on difficulty and capability scores
+3. **Execute** - Chosen model generates the actual response
+
+Cost savings: Ollama is free and local, so simple queries cost $0 instead of ~$0.001-0.01 per request.
