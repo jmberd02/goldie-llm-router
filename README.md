@@ -51,7 +51,8 @@ streamlit run app.py
 - `startup.py`        — env loading + connectivity checks (Ollama, Bedrock)
 - `adapters/`         — HybridAdapter (Ollama + Bedrock), OllamaAdapter, BedrockAdapter
 - `tools/`            — mocked demo tools
-- `observability.py`  — stdout logging (Datadog/Neo4j disabled)
+- `observability.py`  — stdout + optional Datadog (metrics + logs when DD_API_KEY set)
+- `docs/DATADOG_OBSERVABILITY_PLAN.md` — Datadog design and implementation plan
 - `app.py`            — Streamlit UI
 - `fetch_capabilities.py` — Script to fetch latest benchmark data from Artificial Analysis API
 
@@ -63,3 +64,7 @@ The router uses a three-step process:
 3. **Execute** - Chosen model generates the actual response
 
 Cost savings: Ollama is free and local, so simple queries cost $0 instead of ~$0.001-0.01 per request.
+
+## Observability
+
+By default each routing decision is logged to stdout. For production we use **Option B — HTTP API** (plan §4.2): Metrics API v2 for metrics and HTTP Logs Intake for logs. Set `DD_API_KEY` in `.env` (and optionally `DD_APP_KEY`, `DD_SITE`, `DD_SERVICE`, `DD_ENV` per plan §4.1) to send metrics (`llm_router.*`) and one structured log per request to Datadog. No PII is sent; prompt content is not logged. See `docs/DATADOG_OBSERVABILITY_PLAN.md` for schema, tagging, and best practices.
