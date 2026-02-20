@@ -115,6 +115,10 @@ def handle_submit(prompt: str, force_escalate: bool):
 # Page config
 st.set_page_config(page_title="Hybrid LLM Router", layout="wide")
 
+# Run startup checks
+import startup
+startup.run()
+
 # Agent 5: Prompt Helper import
 from prompt_helper import suggest_prompt_rewrite
 
