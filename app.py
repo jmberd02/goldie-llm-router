@@ -316,19 +316,16 @@ st.markdown("""
 
     /* ── Header ── */
     .custom-header {
-        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        padding: 1.5rem 2rem;
-        border-radius: 12px;
+        background: #374151;
+        padding: 0.75rem 2rem;
+        border-radius: 8px;
         margin-bottom: 1.5rem;
-        box-shadow: 0 4px 20px rgba(79,70,229,0.25);
+        box-shadow: 0 2px 10px rgba(55,65,81,0.15);
         text-align: center;
     }
-    .custom-header h1 {
-        color: #fff; font-size: 2rem; font-weight: 700; margin: 0;
-    }
     .custom-header p {
-        color: rgba(255,255,255,0.9); font-size: 0.95rem;
-        margin: 0.4rem auto 0; max-width: 820px; line-height: 1.5;
+        color: rgba(255,255,255,0.95); font-size: 0.875rem;
+        margin: 0; line-height: 1.5;
     }
 
     /* ── Section cards ── */
@@ -457,10 +454,38 @@ st.markdown("""
 
     /* ── Dividers ── */
     hr { border: none; border-top: 1px solid rgba(0,0,0,0.06); margin: 1rem 0; }
+    
+    /* ── Logo ── */
+    .logo-container {
+        text-align: center;
+        margin-bottom: 1.5rem;
+    }
+    .logo-svg {
+        max-width: 400px;
+        height: auto;
+    }
     </style>
 
+    <div class="logo-container">
+        <svg class="logo-svg" viewBox="0 0 850 350" xmlns="http://www.w3.org/2000/svg">
+            <text x="425" y="180" text-anchor="middle" font-family="Arial, sans-serif" font-size="120" font-weight="bold" fill="#374151">GOLDIE</text>
+            <line x1="190" y1="260" x2="360" y2="260" stroke="#374151" stroke-width="12"/>
+            <circle cx="425" cy="260" r="35" fill="none" stroke="#374151" stroke-width="12"/>
+            <!-- Routing icon in the middle -->
+            <g transform="translate(425, 260)">
+                <!-- Three horizontal lines representing routing paths -->
+                <line x1="-20" y1="-12" x2="5" y2="-12" stroke="#374151" stroke-width="4" stroke-linecap="round"/>
+                <line x1="-20" y1="0" x2="5" y2="0" stroke="#374151" stroke-width="4" stroke-linecap="round"/>
+                <line x1="-20" y1="12" x2="5" y2="12" stroke="#374151" stroke-width="4" stroke-linecap="round"/>
+                <!-- Arrow pointing right -->
+                <path d="M 8 0 L 18 0 M 13 -5 L 18 0 L 13 5" stroke="#374151" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+            <line x1="490" y1="260" x2="660" y2="260" stroke="#374151" stroke-width="12"/>
+            <path d="M 645 245 L 660 260 L 645 275" stroke="#374151" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </div>
+
     <div class="custom-header">
-        <h1>Hybrid LLM Router</h1>
         <p>Route prompts between a small local model and a large cloud model.
         Simple tasks stay fast and free; complex queries automatically escalate.</p>
     </div>
