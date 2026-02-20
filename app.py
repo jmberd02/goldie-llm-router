@@ -137,46 +137,25 @@ def handle_submit(prompt: str, force_escalate: bool):
 
 
 def optimize_prompt(prompt: str) -> str:
-    """Optimize the prompt using CopilotKit service."""
+    """Optimize the prompt using local Ollama."""
     try:
-        import requests
+        from copilotkit_optimizer import optimize_prompt_with_ollama
         
         # Get threshold context from session state
         context = {
             "thresholds": st.session_state.sliders
         }
         
-        # Call CopilotKit service
-        response = requests.post(
-            'http://localhost:3001/api/optimize-prompt',
-            json={
-                'prompt': prompt,
-                'context': context
-            },
-            timeout=30
-        )
+        # Call Ollama optimizer
+        optimized = optimize_prompt_with_ollama(prompt, context)
         
-        if response.status_code == 200:
-            result = response.json()
-            
-            if result.get('success') and result.get('optimized'):
-                optimized = result['optimized'].strip()
-                
-                if optimized and len(optimized) > 10:
-                    return optimized
-                else:
-                    return prompt
-            else:
-                return prompt
+        if optimized and optimized != prompt:
+            return optimized
         else:
             return prompt
             
-    except requests.exceptions.ConnectionError:
-        # CopilotKit service not running - use Ollama fallback
-        return _optimize_with_ollama(prompt)
-    except requests.exceptions.Timeout:
-        return prompt
-    except Exception:
+    except Exception as e:
+        print(f"[Optimizer] Error: {e}")
         return _optimize_with_ollama(prompt)
 
 
@@ -264,6 +243,10 @@ if "original_prompt" not in st.session_state:
     st.session_state.original_prompt = ""
 if "optimizing" not in st.session_state:
     st.session_state.optimizing = False
+if "optimization_complete" not in st.session_state:
+    st.session_state.optimization_complete = False
+if "optimization_result" not in st.session_state:
+    st.session_state.optimization_result = None
 # Load threshold defaults from .env
 THRESHOLD_DEFAULTS = {
     "Math": float(os.getenv("THRESHOLD_MATH", 0.5)),
@@ -306,8 +289,8 @@ if "sliders" not in st.session_state:
     st.session_state.sliders = THRESHOLD_DEFAULTS.copy()
     st.session_state.storage_loaded = False
 
-# Try to load from localStorage on first run
-if not st.session_state.storage_loaded:
+# Try to load from localStorage on first run ONLY
+if not st.session_state.get("storage_loaded", False):
     stored = load_thresholds_from_storage()
     if stored:
         try:
@@ -324,6 +307,12 @@ if st.session_state.optimizing:
     # Update the session state
     st.session_state.sidebar_copied_prompt = optimized
     st.session_state.optimizing = False
+    st.session_state.optimization_complete = True
+    st.session_state.optimization_result = {
+        "original_length": len(st.session_state.original_prompt),
+        "optimized_length": len(optimized),
+        "changed": optimized != st.session_state.original_prompt
+    }
     
     # Set to "Custom..." mode
     st.session_state.selected_demo = len(DEMO_PROMPTS) - 1
@@ -584,19 +573,25 @@ with left_col:
         label_visibility="collapsed",
     )
 
+    # Show optimization result if just completed
+    if st.session_state.optimization_complete:
+        result = st.session_state.optimization_result
+        if result and result["changed"]:
+            st.success(f"✨ Prompt optimized! ({result['original_length']} → {result['optimized_length']} chars)")
+        else:
+            st.info("✓ Prompt is already well-structured.")
+        st.session_state.optimization_complete = False
+
     # Toolbar row: Optimize / Undo
     tool_cols = st.columns([1, 1, 4])
     with tool_cols[0]:
-        if not st.session_state.optimizing:
-            if st.button("Optimize", key="show_optimizer_btn", help="Rewrite this prompt with the local LLM", use_container_width=True):
-                current_text = st.session_state.get("main_prompt_input", "")
-                if current_text.strip():
-                    st.session_state.show_optimizer = True
-                    st.session_state.original_prompt = current_text
-                else:
-                    st.warning("Enter a prompt first.")
-        else:
-            st.caption("Optimizing...")
+        if st.button("✨ Optimize Prompt", key="show_optimizer_btn", help="Rewrite this prompt using local LLM", use_container_width=True, disabled=st.session_state.optimizing):
+            current_text = st.session_state.get("main_prompt_input", "")
+            if current_text.strip():
+                st.session_state.show_optimizer = True
+                st.session_state.original_prompt = current_text
+            else:
+                st.warning("Enter a prompt first.")
     with tool_cols[1]:
         if st.session_state.get("original_prompt"):
             if st.button("Undo", use_container_width=True, key="undo_optimize", help="Restore the original prompt"):
@@ -608,8 +603,8 @@ with left_col:
     if st.session_state.show_optimizer:
         st.markdown("""
             <div class="optimizer-dialog">
-                <h4>Prompt Optimizer</h4>
-                <p>Rewrite this prompt using the local LLM to improve clarity and detail?</p>
+                <h4>✨ Prompt Optimizer</h4>
+                <p>Rewrite this prompt using local LLM to improve clarity, structure, and routing effectiveness?</p>
             </div>
         """, unsafe_allow_html=True)
         col_yes, col_no = st.columns(2)
@@ -617,9 +612,16 @@ with left_col:
             if st.button("Yes, Optimize", type="primary", use_container_width=True, key="confirm_optimize"):
                 st.session_state.show_optimizer = False
                 st.session_state.optimizing = True
+                st.rerun()
         with col_no:
             if st.button("Cancel", use_container_width=True, key="cancel_optimize"):
                 st.session_state.show_optimizer = False
+    
+    # Show spinner when optimizing
+    if st.session_state.optimizing:
+        with st.spinner("🤖 Optimizing your prompt with local LLM..."):
+            import time
+            time.sleep(0.1)  # Brief pause to show spinner
 
     # Action buttons
     btn_cols = st.columns([1, 1])
