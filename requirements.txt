@@ -4,3 +4,6 @@ datadog-api-client
 neo4j
 python-dotenv
 requests
+
+# Testing
+pytest
