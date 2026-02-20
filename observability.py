@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 from datetime import datetime
 from models import CompletionResult
 
@@ -20,8 +21,8 @@ file_handler.setLevel(logging.INFO)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 
-# Formatter
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+# JSON formatter - just output the message (which will be JSON)
+formatter = logging.Formatter('%(message)s')
 file_handler.setFormatter(formatter)
 console_handler.setFormatter(formatter)
 
@@ -43,17 +44,44 @@ def log_routing_decision(result: CompletionResult, prompt: str) -> None:
 
 
 def _log_to_file(result: CompletionResult, prompt: str) -> None:
-    """Log routing decision to file."""
-    task_cat = result.classification.dominant_category if result.classification else "unknown"
+    """Log routing decision to file as formatted JSON."""
     
-    log_msg = (
-        f"[METRICS] model={result.model_id} cost=${result.cost_usd:.6f} "
-        f"latency={result.latency_ms:.0f}ms escalated={result.escalated} "
-        f"tokens_in={result.input_tokens} tokens_out={result.output_tokens} "
-        f"task={task_cat} prompt_preview={prompt[:50]}..."
-    )
+    # Build comprehensive log data
+    log_data = {
+        "timestamp": datetime.now().isoformat(),
+        "event_type": "routing_decision",
+        "prompt": {
+            "text": prompt,
+            "preview": prompt[:100] + "..." if len(prompt) > 100 else prompt,
+            "length": len(prompt)
+        },
+        "routing": {
+            "model_used": result.model_used,
+            "model_id": result.model_id,
+            "escalated": result.escalated,
+            "reason": result.routing_reason
+        },
+        "classification": {
+            "dominant_category": result.classification.dominant_category if result.classification else None,
+            "difficulty": result.classification.difficulty if result.classification else None,
+            "subtasks": result.classification.subtasks if result.classification else [],
+            "task_categories": result.classification.task_categories if result.classification else {}
+        } if result.classification else None,
+        "metrics": {
+            "cost_usd": round(result.cost_usd, 8),
+            "latency_ms": round(result.latency_ms, 2),
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "total_tokens": result.input_tokens + result.output_tokens
+        },
+        "response": {
+            "preview": result.response[:200] + "..." if len(result.response) > 200 else result.response,
+            "length": len(result.response)
+        }
+    }
     
-    logger.info(log_msg)
+    # Log as formatted JSON (indent=2 for readability)
+    logger.info(json.dumps(log_data, indent=2))
 
 
 def log_to_neo4j(prompt: str, result: CompletionResult) -> None:
