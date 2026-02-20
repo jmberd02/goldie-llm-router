@@ -20,6 +20,8 @@ try:
 except ImportError:
     pass
 
+from observability import log_routing_decision
+
 # Stub demo prompts
 STUB_DEMO_PROMPTS = [
     {"label": "🟢 What year was the Eiffel Tower built?",
@@ -121,6 +123,7 @@ def handle_submit(prompt: str, force_escalate: bool):
     with st.spinner("Routing..." if not force_escalate else "Sending to large model..."):
         if USE_STUB:
             result = stub_route(prompt, force_escalate)
+            log_routing_decision(result, prompt)  # traceable in Datadog even in stub mode
         else:
             result = route(prompt, force_escalate, ui_thresholds=ui_thresholds)
     

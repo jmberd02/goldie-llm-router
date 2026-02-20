@@ -5,6 +5,12 @@ neo4j
 python-dotenv
 requests
 copilotkit
+<<<<<<< HEAD
 langgraph
 langchain-openai
 langchain-core
+=======
+
+# Testing
+pytest
+>>>>>>> 88021bbbb8b1d777cc87f31da6315dd3a22da3c3
