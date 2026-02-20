@@ -1,9 +1,13 @@
 from __future__ import annotations
 import json
+import os
 import time
 from models import Classification, CompletionResult, TASK_TO_EVAL
 from capability_file import CAPABILITY_FILE
 from observability import log_routing_decision, log_to_neo4j
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 CLASSIFICATION_PROMPT_TEMPLATE = """Analyze this request and respond in JSON only. No markdown, no explanation, just the JSON object.
@@ -34,6 +38,28 @@ Escalation rule: if subtasks > 2 OR difficulty >= 0.7, set escalate: true
 """
 
 
+# Threshold mapping: category -> env var name
+THRESHOLD_ENV_VARS = {
+    "math": "ROUTING_THRESHOLD_MATH",
+    "code_operation": "ROUTING_THRESHOLD_CODE",
+    "multi_step_reasoning": "ROUTING_THRESHOLD_REASONING",
+    "agentic_tool_use": "ROUTING_THRESHOLD_AGENTIC",
+    "long_context": "ROUTING_THRESHOLD_LONG_CONTEXT",
+    "general_qa": "ROUTING_THRESHOLD_GENERAL_QA",
+}
+
+
+def get_threshold(category: str) -> float:
+    """Get threshold for a category from env vars, with fallback to base threshold."""
+    env_var = THRESHOLD_ENV_VARS.get(category)
+    if env_var:
+        try:
+            return float(os.getenv(env_var, os.getenv("ROUTING_THRESHOLD_BASE", "0.40")))
+        except ValueError:
+            pass
+    return float(os.getenv("ROUTING_THRESHOLD_BASE", "0.40"))
+
+
 def pick_model(classification: Classification) -> tuple[str, str]:
     """
     Returns (model_id, reason) based on classification and capability file.
@@ -58,10 +84,12 @@ def pick_model(classification: Classification) -> tuple[str, str]:
     if classification.escalate:
         return "sonnet", "classification flagged escalation (subtasks > 2 or difficulty >= 0.7)"
     
-    # Rule 2: Look up eval key and calculate threshold
+    # Rule 2: Look up eval key and get threshold from env
+    # Note: difficulty score is unreliable (self-assessed confidence problem)
+    # The subtask count and escalate flag are the trustworthy signals
     category = classification.dominant_category
     eval_key = TASK_TO_EVAL[category]
-    threshold = 0.40 + (classification.difficulty * 0.2)
+    threshold = get_threshold(category)
     
     small_score = CAPABILITY_FILE["small"].get(eval_key, 0.0)
     small_hle = CAPABILITY_FILE["small"]["hle"]
