@@ -138,6 +138,14 @@ st.title("🔀 Hybrid LLM Router")
 # Layout
 left_col, right_col = st.columns([6, 4])
 
+# Get current prompt value (needed for both columns)
+selected = 0  # Default selection
+if "selected_demo" in st.session_state:
+    selected = st.session_state.selected_demo
+
+is_custom = DEMO_PROMPTS[selected]["label"] == "Custom..."
+prompt_value = st.session_state.get("sidebar_copied_prompt") or ("" if is_custom else DEMO_PROMPTS[selected]["prompt"])
+
 with left_col:
     st.subheader("Input")
     
@@ -147,6 +155,7 @@ with left_col:
         options=range(len(DEMO_PROMPTS)),
         format_func=lambda i: DEMO_PROMPTS[i]["label"]
     )
+    st.session_state.selected_demo = selected
     
     # Text input
     is_custom = DEMO_PROMPTS[selected]["label"] == "Custom..."
@@ -156,7 +165,8 @@ with left_col:
         "Prompt:",
         value=prompt_value,
         height=100,
-        placeholder="Enter your prompt here..." if is_custom else None
+        placeholder="Enter your prompt here..." if is_custom else None,
+        key="main_prompt_input"
     )
     
     # Buttons
@@ -194,8 +204,8 @@ with right_col:
     if "show_helper" not in st.session_state:
         st.session_state.show_helper = True
     
-    # Auto-analyze the current prompt
-    current_prompt = prompt.strip() if 'prompt' in locals() else ""
+    # Get current prompt from session state (set by the text_area in left column)
+    current_prompt = st.session_state.get("main_prompt_input", "").strip()
     
     if current_prompt and current_prompt != st.session_state.last_analyzed_prompt:
         try:
