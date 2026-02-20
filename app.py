@@ -131,6 +131,8 @@ if "last_result" not in st.session_state:
     st.session_state.last_result = None
 if "sidebar_copied_prompt" not in st.session_state:
     st.session_state.sidebar_copied_prompt = ""
+if "selected_demo" not in st.session_state:
+    st.session_state.selected_demo = 0
 
 # Header
 st.title("🔀 Hybrid LLM Router")
@@ -176,11 +178,11 @@ with left_col:
     with col2:
         escalate = st.button("⬆ Force Escalate", use_container_width=True)
     
-    # Handle submissions
+    # Handle submissions (use session state value)
     if submit:
-        handle_submit(prompt, force_escalate=False)
+        handle_submit(st.session_state.get("main_prompt_input", ""), force_escalate=False)
     if escalate:
-        handle_submit(prompt, force_escalate=True)
+        handle_submit(st.session_state.get("main_prompt_input", ""), force_escalate=True)
     
     # Response display
     if st.session_state.last_result:
