@@ -28,7 +28,7 @@ def check_ollama():
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
-                "model": "qwen2.5:1.5b",
+                "model": "qwen3:8b",
                 "prompt": "Say OK",
                 "stream": False,
             },
@@ -37,11 +37,11 @@ def check_ollama():
         response.raise_for_status()
         data = response.json()
         text = data.get("response", "").strip()
-        print(f"✓ Ollama (qwen2.5:1.5b) reachable — response: {text[:50]!r}")
+        print(f"✓ Ollama (qwen3:8b) reachable — response: {text[:50]!r}")
     except Exception as e:
         print(f"✗ Ollama check failed: {e}")
         print("  Make sure Ollama is running: ollama serve")
-        print("  And model is pulled: ollama pull qwen2.5:1.5b")
+        print("  And model is pulled: ollama pull qwen3:8b")
         sys.exit(1)
 
 

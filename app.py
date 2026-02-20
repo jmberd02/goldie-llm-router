@@ -1,10 +1,17 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import time
 import random
-from models import CompletionResult, Classification
+import os
+import json
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from models import CompletionResult, Classification, UI_CATEGORY_NAMES
 
 # Force stub mode - frontend only, no model calls
-USE_STUB = True
+USE_STUB = False
 
 # Try to import real implementations, fall back to stubs
 try:
@@ -92,18 +99,33 @@ def model_badge(model_used: str, model_id: str) -> str:
     return f"🔴 Large ({model_id})"
 
 
+def _update_slider(scale_name: str):
+    """Callback to update slider value and save to localStorage."""
+    threshold = st.session_state[f"{scale_name}_threshold"]
+    st.session_state.sliders[scale_name] = threshold
+    # Save to localStorage
+    save_thresholds_to_storage(st.session_state.sliders)
+
+
 def handle_submit(prompt: str, force_escalate: bool):
     """Process a routing request and update session state."""
     if not prompt.strip():
         st.error("Please enter a prompt")
         return
     
+    # Build ui_thresholds dict from session state sliders using shared mapping
+    ui_thresholds = {
+        UI_CATEGORY_NAMES[name]: value 
+        for name, value in st.session_state.sliders.items() 
+        if name in UI_CATEGORY_NAMES
+    }
+    
     with st.spinner("Routing..." if not force_escalate else "Sending to large model..."):
         if USE_STUB:
             result = stub_route(prompt, force_escalate)
             log_routing_decision(result, prompt)  # traceable in Datadog even in stub mode
         else:
-            result = route(prompt, force_escalate)
+            result = route(prompt, force_escalate, ui_thresholds=ui_thresholds)
     
     st.session_state.last_result = result
     st.session_state.session_cost += result.cost_usd
@@ -118,17 +140,61 @@ def handle_submit(prompt: str, force_escalate: bool):
 
 
 def optimize_prompt(prompt: str) -> str:
-    """Optimize the prompt using local Ollama LLM."""
+    """Optimize the prompt using CopilotKit service."""
+    try:
+        import requests
+        
+        # Get threshold context from session state
+        context = {
+            "thresholds": st.session_state.sliders
+        }
+        
+        # Call CopilotKit service
+        response = requests.post(
+            'http://localhost:3001/api/optimize-prompt',
+            json={
+                'prompt': prompt,
+                'context': context
+            },
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            
+            if result.get('success') and result.get('optimized'):
+                optimized = result['optimized'].strip()
+                
+                if optimized and len(optimized) > 10:
+                    return optimized
+                else:
+                    return prompt
+            else:
+                return prompt
+        else:
+            return prompt
+            
+    except requests.exceptions.ConnectionError:
+        # CopilotKit service not running - use Ollama fallback
+        return _optimize_with_ollama(prompt)
+    except requests.exceptions.Timeout:
+        return prompt
+    except Exception:
+        return _optimize_with_ollama(prompt)
+
+
+def _optimize_with_ollama(prompt: str) -> str:
+    """Fallback: Direct Ollama optimization when CopilotKit service is unavailable."""
     try:
         import requests
         
         system_prompt = """You are an expert Prompt Engineer. Rewrite the user's input to be more detailed, structured, and effective. Improve clarity and add necessary constraints. Return ONLY the improved prompt text without any preamble or explanation."""
         
-        # Call Ollama API
+        # Call Ollama API directly
         response = requests.post(
             'http://localhost:11434/api/generate',
             json={
-                'model': 'qwen2.5:1.5b',
+                'model': 'qwen3:8b',
                 'prompt': f"{system_prompt}\n\nOriginal prompt: {prompt}\n\nImproved prompt:",
                 'stream': False,
                 'options': {
@@ -143,34 +209,14 @@ def optimize_prompt(prompt: str) -> str:
             result = response.json()
             optimized = result.get('response', '').strip()
             
-            # Debug: print to console
-            print(f"[OPTIMIZER] Original length: {len(prompt)}")
-            print(f"[OPTIMIZER] Optimized length: {len(optimized)}")
-            print(f"[OPTIMIZER] First 100 chars: {optimized[:100]}...")
-            
-            # If we got a valid response, return it
             if optimized and len(optimized) > 10:
                 return optimized
             else:
-                # Fallback to original if response is too short
-                print("[OPTIMIZER] Response too short, returning original")
                 return prompt
         else:
-            # If API call fails, return original
-            print(f"[OPTIMIZER] API call failed with status {response.status_code}")
             return prompt
             
-    except requests.exceptions.ConnectionError:
-        # Ollama not running - use stub fallback
-        print("[OPTIMIZER] Connection error, using stub fallback")
-        return _stub_optimize(prompt)
-    except requests.exceptions.Timeout:
-        # Timeout - return original
-        print("[OPTIMIZER] Timeout, returning original")
-        return prompt
-    except Exception as e:
-        # Any other error - use stub fallback
-        print(f"[OPTIMIZER] Error: {e}, using stub fallback")
+    except Exception:
         return _stub_optimize(prompt)
 
 
@@ -221,15 +267,72 @@ if "original_prompt" not in st.session_state:
     st.session_state.original_prompt = ""
 if "optimizing" not in st.session_state:
     st.session_state.optimizing = False
-if "sliders" not in st.session_state:
-    st.session_state.sliders = {
-        "Math": 0.5,
-        "Code Operations": 0.5,
-        "Reasoning": 0.5,
-        "Agentic Tool Use": 0.5,
-        "Long Context": 0.5,
-        "General QA": 0.5,
+# Load threshold defaults from .env
+THRESHOLD_DEFAULTS = {
+    "Math": float(os.getenv("THRESHOLD_MATH", 0.5)),
+    "Code Operations": float(os.getenv("THRESHOLD_CODE_OPERATIONS", 0.5)),
+    "Reasoning": float(os.getenv("THRESHOLD_REASONING", 0.5)),
+    "Agentic Tool Use": float(os.getenv("THRESHOLD_AGENTIC_TOOL_USE", 0.5)),
+    "Long Context": float(os.getenv("THRESHOLD_LONG_CONTEXT", 0.5)),
+    "General QA": float(os.getenv("THRESHOLD_GENERAL_QA", 0.5)),
+}
+
+
+def load_thresholds_from_storage():
+    """Load thresholds from localStorage via JavaScript."""
+    html = """
+    <script>
+    const thresholds = localStorage.getItem('goldie_thresholds');
+    if (thresholds) {
+        window.parent.postMessage({type: 'streamlit:setComponentValue', value: thresholds}, '*');
+    } else {
+        window.parent.postMessage({type: 'streamlit:setComponentValue', value: null}, '*');
     }
+    </script>
+    """
+    return components.html(html, height=0)
+
+
+def save_thresholds_to_storage(thresholds):
+    """Save thresholds to localStorage via JavaScript."""
+    thresholds_json = json.dumps(thresholds).replace("'", "\\'")
+    html = f"""
+    <script>
+    localStorage.setItem('goldie_thresholds', '{thresholds_json}');
+    </script>
+    """
+    components.html(html, height=0)
+
+
+# Initialize sliders from localStorage or defaults
+if "sliders" not in st.session_state:
+    st.session_state.sliders = THRESHOLD_DEFAULTS.copy()
+    st.session_state.storage_loaded = False
+
+# Try to load from localStorage on first run
+if not st.session_state.storage_loaded:
+    stored = load_thresholds_from_storage()
+    if stored:
+        try:
+            stored_thresholds = json.loads(stored)
+            st.session_state.sliders.update(stored_thresholds)
+        except:
+            pass
+    st.session_state.storage_loaded = True
+
+# Handle optimization completion BEFORE any widgets are created
+if st.session_state.optimizing:
+    optimized = optimize_prompt(st.session_state.original_prompt)
+    
+    # Update the session state
+    st.session_state.sidebar_copied_prompt = optimized
+    st.session_state.optimizing = False
+    
+    # Set to "Custom..." mode
+    st.session_state.selected_demo = len(DEMO_PROMPTS) - 1
+    
+    # Directly update the text area value in session state
+    st.session_state.main_prompt_input = optimized
 
 # Modern header with custom styling
 st.markdown("""
@@ -246,19 +349,16 @@ st.markdown("""
 
     /* ── Header ── */
     .custom-header {
-        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        padding: 1.5rem 2rem;
-        border-radius: 12px;
+        background: #374151;
+        padding: 0.75rem 2rem;
+        border-radius: 8px;
         margin-bottom: 1.5rem;
-        box-shadow: 0 4px 20px rgba(79,70,229,0.25);
+        box-shadow: 0 2px 10px rgba(55,65,81,0.15);
         text-align: center;
     }
-    .custom-header h1 {
-        color: #fff; font-size: 2rem; font-weight: 700; margin: 0;
-    }
     .custom-header p {
-        color: rgba(255,255,255,0.9); font-size: 0.95rem;
-        margin: 0.4rem auto 0; max-width: 820px; line-height: 1.5;
+        color: rgba(255,255,255,0.95); font-size: 0.875rem;
+        margin: 0; line-height: 1.5;
     }
 
     /* ── Section cards ── */
@@ -387,10 +487,38 @@ st.markdown("""
 
     /* ── Dividers ── */
     hr { border: none; border-top: 1px solid rgba(0,0,0,0.06); margin: 1rem 0; }
+    
+    /* ── Logo ── */
+    .logo-container {
+        text-align: center;
+        margin-bottom: 1.5rem;
+    }
+    .logo-svg {
+        max-width: 400px;
+        height: auto;
+    }
     </style>
 
+    <div class="logo-container">
+        <svg class="logo-svg" viewBox="0 0 850 350" xmlns="http://www.w3.org/2000/svg">
+            <text x="425" y="180" text-anchor="middle" font-family="Arial, sans-serif" font-size="120" font-weight="bold" fill="#374151">GOLDIE</text>
+            <line x1="190" y1="260" x2="360" y2="260" stroke="#374151" stroke-width="12"/>
+            <circle cx="425" cy="260" r="35" fill="none" stroke="#374151" stroke-width="12"/>
+            <!-- Routing icon in the middle -->
+            <g transform="translate(425, 260)">
+                <!-- Three horizontal lines representing routing paths -->
+                <line x1="-20" y1="-12" x2="5" y2="-12" stroke="#374151" stroke-width="4" stroke-linecap="round"/>
+                <line x1="-20" y1="0" x2="5" y2="0" stroke="#374151" stroke-width="4" stroke-linecap="round"/>
+                <line x1="-20" y1="12" x2="5" y2="12" stroke="#374151" stroke-width="4" stroke-linecap="round"/>
+                <!-- Arrow pointing right -->
+                <path d="M 8 0 L 18 0 M 13 -5 L 18 0 L 13 5" stroke="#374151" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+            <line x1="490" y1="260" x2="660" y2="260" stroke="#374151" stroke-width="12"/>
+            <path d="M 645 245 L 660 260 L 645 275" stroke="#374151" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </div>
+
     <div class="custom-header">
-        <h1>Hybrid LLM Router</h1>
         <p>Route prompts between a small local model and a large cloud model.
         Simple tasks stay fast and free; complex queries automatically escalate.</p>
     </div>
@@ -411,22 +539,44 @@ with left_col:
     # ── Input section ──
     st.markdown('<p class="section-title">Input</p>', unsafe_allow_html=True)
 
+    # Use session state for selectbox to control it programmatically
+    if "selected_demo" not in st.session_state:
+        st.session_state.selected_demo = 0
+    
     selected = st.selectbox(
         "Demo prompt",
         options=range(len(DEMO_PROMPTS)),
         format_func=lambda i: DEMO_PROMPTS[i]["label"],
         label_visibility="collapsed",
+        key="demo_selector",
+        index=st.session_state.selected_demo
     )
-    st.session_state.selected_demo = selected
+    
+    # Detect when user changes the selectbox
+    if selected != st.session_state.selected_demo:
+        st.session_state.selected_demo = selected
+        st.session_state.sidebar_copied_prompt = ""
+        
+        # Update the text area value directly in session state
+        is_custom = DEMO_PROMPTS[selected]["label"] == "Custom..."
+        if is_custom:
+            st.session_state.main_prompt_input = ""
+        else:
+            st.session_state.main_prompt_input = DEMO_PROMPTS[selected]["prompt"]
 
-    is_custom = DEMO_PROMPTS[selected]["label"] == "Custom..."
-    # Prioritize sidebar_copied_prompt (from optimization) over demo prompts
+    is_custom = DEMO_PROMPTS[st.session_state.selected_demo]["label"] == "Custom..."
+    
+    # Calculate the initial value for the text area
+    # This only matters on first render or after widget state is deleted
     if st.session_state.get("sidebar_copied_prompt"):
         prompt_value = st.session_state.sidebar_copied_prompt
+    elif "main_prompt_input" in st.session_state:
+        # Use existing widget state
+        prompt_value = st.session_state.main_prompt_input
     elif is_custom:
         prompt_value = ""
     else:
-        prompt_value = DEMO_PROMPTS[selected]["prompt"]
+        prompt_value = DEMO_PROMPTS[st.session_state.selected_demo]["prompt"]
 
     prompt = st.text_area(
         "Prompt",
@@ -454,8 +604,8 @@ with left_col:
         if st.session_state.get("original_prompt"):
             if st.button("Undo", use_container_width=True, key="undo_optimize", help="Restore the original prompt"):
                 st.session_state.sidebar_copied_prompt = st.session_state.original_prompt
+                st.session_state.main_prompt_input = st.session_state.original_prompt
                 st.session_state.original_prompt = ""
-                st.rerun()
 
     # Optimizer confirmation
     if st.session_state.show_optimizer:
@@ -470,24 +620,9 @@ with left_col:
             if st.button("Yes, Optimize", type="primary", use_container_width=True, key="confirm_optimize"):
                 st.session_state.show_optimizer = False
                 st.session_state.optimizing = True
-                st.rerun()
         with col_no:
             if st.button("Cancel", use_container_width=True, key="cancel_optimize"):
                 st.session_state.show_optimizer = False
-                st.rerun()
-
-    # Perform optimization
-    if st.session_state.optimizing:
-        with st.spinner("🔄 Optimizing your prompt..."):
-            optimized = optimize_prompt(st.session_state.original_prompt)
-            # Update the session state
-            st.session_state.sidebar_copied_prompt = optimized
-            st.session_state.optimizing = False
-            # Clear the selected demo to force custom mode
-            st.session_state.selected_demo = len(DEMO_PROMPTS) - 1  # Set to "Custom..."
-            st.success(f"✨ Prompt optimized! (Length: {len(st.session_state.original_prompt)} → {len(optimized)})")
-            time.sleep(1)
-            st.rerun()
 
     # Action buttons
     btn_cols = st.columns([1, 1])
@@ -513,10 +648,9 @@ with left_col:
             label_visibility="collapsed",
         )
 
-with right_col:
-    # ── Sliding Scales Section ──
-    st.markdown('<p class="section-title">Thresholds</p>', unsafe_allow_html=True)
-    
+@st.fragment
+def threshold_sliders():
+    """Fragment to isolate threshold sliders from main app reruns."""
     # Define scale names in order
     scale_names = [
         "Math",
@@ -543,11 +677,9 @@ with right_col:
                 value=st.session_state.sliders[scale_name],
                 step=0.05,
                 key=f"{scale_name}_threshold",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                on_change=lambda name=scale_name: _update_slider(name)
             )
-            
-            # Update session state
-            st.session_state.sliders[scale_name] = threshold
             
             # Visual indicator showing the threshold position
             st.markdown(f"""
@@ -573,11 +705,9 @@ with right_col:
                 value=st.session_state.sliders[scale_name],
                 step=0.05,
                 key=f"{scale_name}_threshold",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                on_change=lambda name=scale_name: _update_slider(name)
             )
-            
-            # Update session state
-            st.session_state.sliders[scale_name] = threshold
             
             # Visual indicator showing the threshold position
             st.markdown(f"""
@@ -589,6 +719,12 @@ with right_col:
                     height: 8px; border-radius: 4px; margin-bottom: 1rem;">
                 </div>
             """, unsafe_allow_html=True)
+
+
+with right_col:
+    # ── Sliding Scales Section ──
+    st.markdown('<p class="section-title">Thresholds</p>', unsafe_allow_html=True)
+    threshold_sliders()
 
 # ── Results Section (below input) ──
 if st.session_state.last_result:

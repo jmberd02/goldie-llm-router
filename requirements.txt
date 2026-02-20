@@ -4,6 +4,7 @@ datadog-api-client
 neo4j
 python-dotenv
 requests
+copilotkit
 
 # Testing
 pytest
