@@ -38,7 +38,7 @@ Escalation rule: if subtasks > 2 OR difficulty >= 0.7, set escalate: true
 """
 
 
-# Threshold mapping: category -> env var name
+# Threshold mapping: category -> env var name (used as defaults)
 THRESHOLD_ENV_VARS = {
     "math": "ROUTING_THRESHOLD_MATH",
     "code_operation": "ROUTING_THRESHOLD_CODE",
@@ -48,19 +48,25 @@ THRESHOLD_ENV_VARS = {
     "general_qa": "ROUTING_THRESHOLD_GENERAL_QA",
 }
 
+# Default thresholds from .env or fallback values
+DEFAULT_THRESHOLDS = {
+    "math": float(os.getenv("ROUTING_THRESHOLD_MATH", "0.40")),
+    "code_operation": float(os.getenv("ROUTING_THRESHOLD_CODE", "0.40")),
+    "multi_step_reasoning": float(os.getenv("ROUTING_THRESHOLD_REASONING", "0.40")),
+    "agentic_tool_use": float(os.getenv("ROUTING_THRESHOLD_AGENTIC", "0.40")),
+    "long_context": float(os.getenv("ROUTING_THRESHOLD_LONG_CONTEXT", "0.40")),
+    "general_qa": float(os.getenv("ROUTING_THRESHOLD_GENERAL_QA", "0.40")),
+}
 
-def get_threshold(category: str) -> float:
-    """Get threshold for a category from env vars, with fallback to base threshold."""
-    env_var = THRESHOLD_ENV_VARS.get(category)
-    if env_var:
-        try:
-            return float(os.getenv(env_var, os.getenv("ROUTING_THRESHOLD_BASE", "0.40")))
-        except ValueError:
-            pass
-    return float(os.getenv("ROUTING_THRESHOLD_BASE", "0.40"))
+
+def get_threshold(category: str, ui_thresholds: dict = None) -> float:
+    """Get threshold for a category from UI or env vars (defaults)."""
+    if ui_thresholds and category in ui_thresholds:
+        return ui_thresholds[category]
+    return DEFAULT_THRESHOLDS.get(category, 0.40)
 
 
-def pick_model(classification: Classification) -> tuple[str, str]:
+def pick_model(classification: Classification, ui_thresholds: dict = None) -> tuple[str, str]:
     """
     Returns (model_id, reason) based on classification and capability file.
     
@@ -84,12 +90,12 @@ def pick_model(classification: Classification) -> tuple[str, str]:
     if classification.escalate:
         return "sonnet", "classification flagged escalation (subtasks > 2 or difficulty >= 0.7)"
     
-    # Rule 2: Look up eval key and get threshold from env
+    # Rule 2: Look up eval key and get threshold from UI or env defaults
     # Note: difficulty score is unreliable (self-assessed confidence problem)
     # The subtask count and escalate flag are the trustworthy signals
     category = classification.dominant_category
     eval_key = TASK_TO_EVAL[category]
-    threshold = get_threshold(category)
+    threshold = get_threshold(category, ui_thresholds)
     
     small_score = CAPABILITY_FILE["small"].get(eval_key, 0.0)
     small_hle = CAPABILITY_FILE["small"]["hle"]
@@ -110,7 +116,7 @@ def pick_model(classification: Classification) -> tuple[str, str]:
     return "sonnet", reason
 
 
-def route(prompt: str, force_escalate: bool = False, adapter=None) -> CompletionResult:
+def route(prompt: str, force_escalate: bool = False, adapter=None, ui_thresholds: dict = None) -> CompletionResult:
     """
     Main routing entry point. Three-step flow:
     1. CLASSIFY  — small model returns JSON classification (no answer)
@@ -187,7 +193,7 @@ def route(prompt: str, force_escalate: bool = False, adapter=None) -> Completion
         return result
     
     # Step 4: Route based on classification
-    model_id, routing_reason = pick_model(classification)
+    model_id, routing_reason = pick_model(classification, ui_thresholds)
     
     # Step 5: Execution call (chosen model returns actual answer)
     execution_result = adapter.complete(prompt, model_id)

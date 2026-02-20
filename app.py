@@ -4,7 +4,7 @@ import random
 from models import CompletionResult, Classification
 
 # Force stub mode - frontend only, no model calls
-USE_STUB = True
+USE_STUB = False
 
 # Try to import real implementations, fall back to stubs
 try:
@@ -90,17 +90,35 @@ def model_badge(model_used: str, model_id: str) -> str:
     return f"🔴 Large ({model_id})"
 
 
+# Map UI slider names to router category names
+SLIDER_TO_CATEGORY = {
+    "Math": "math",
+    "Code Operations": "code_operation",
+    "Reasoning": "multi_step_reasoning",
+    "Agentic Tool Use": "agentic_tool_use",
+    "Long Context": "long_context",
+    "General QA": "general_qa",
+}
+
+
 def handle_submit(prompt: str, force_escalate: bool):
     """Process a routing request and update session state."""
     if not prompt.strip():
         st.error("Please enter a prompt")
         return
     
+    # Build ui_thresholds dict from session state sliders
+    ui_thresholds = {
+        SLIDER_TO_CATEGORY[name]: value 
+        for name, value in st.session_state.sliders.items() 
+        if name in SLIDER_TO_CATEGORY
+    }
+    
     with st.spinner("Routing..." if not force_escalate else "Sending to large model..."):
         if USE_STUB:
             result = stub_route(prompt, force_escalate)
         else:
-            result = route(prompt, force_escalate)
+            result = route(prompt, force_escalate, ui_thresholds=ui_thresholds)
     
     st.session_state.last_result = result
     st.session_state.session_cost += result.cost_usd
