@@ -1,0 +1,5 @@
+boto3
+streamlit
+datadog-api-client
+neo4j
+python-dotenv
