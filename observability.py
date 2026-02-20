@@ -1,4 +1,5 @@
 import os
+<<<<<<< HEAD
 import logging
 import json
 from datetime import datetime
@@ -30,19 +31,24 @@ console_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
+=======
+from models import CompletionResult
+
+>>>>>>> 72ebe2755fcfd9308a57869837c454a14fb882d7
 
 def log_routing_decision(result: CompletionResult, prompt: str) -> None:
     """
-    Log routing decision metrics to file and stdout.
+    Log routing decision metrics to stdout.
     (Datadog integration disabled for now)
     
     Args:
         result: CompletionResult containing routing decision and metrics
         prompt: Original user prompt (for context)
     """
-    _log_to_file(result, prompt)
+    _log_to_stdout(result, prompt)
 
 
+<<<<<<< HEAD
 def _log_to_file(result: CompletionResult, prompt: str) -> None:
     """Log routing decision to file as formatted JSON."""
     
@@ -82,6 +88,15 @@ def _log_to_file(result: CompletionResult, prompt: str) -> None:
     
     # Log as formatted JSON (indent=2 for readability)
     logger.info(json.dumps(log_data, indent=2))
+=======
+def _log_to_stdout(result: CompletionResult, prompt: str) -> None:
+    """Fallback stdout logging when Datadog is unavailable."""
+    task_cat = result.classification.dominant_category if result.classification else "unknown"
+    print(f"[METRICS] model={result.model_id} cost=${result.cost_usd:.6f} "
+          f"latency={result.latency_ms:.0f}ms escalated={result.escalated} "
+          f"tokens_in={result.input_tokens} tokens_out={result.output_tokens} "
+          f"task={task_cat}")
+>>>>>>> 72ebe2755fcfd9308a57869837c454a14fb882d7
 
 
 def log_to_neo4j(prompt: str, result: CompletionResult) -> None:
