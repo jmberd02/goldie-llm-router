@@ -185,6 +185,93 @@ with left_col:
         )
 
 with right_col:
+    # ── Agent 5: Prompt Helper Agent ──────────────────────────────────────
+    # Initialize helper session state
+    if "helper_suggestion" not in st.session_state:
+        st.session_state.helper_suggestion = None
+    if "last_analyzed_prompt" not in st.session_state:
+        st.session_state.last_analyzed_prompt = ""
+    if "show_helper" not in st.session_state:
+        st.session_state.show_helper = True
+    
+    # Auto-analyze the current prompt
+    current_prompt = prompt.strip() if 'prompt' in locals() else ""
+    
+    if current_prompt and current_prompt != st.session_state.last_analyzed_prompt:
+        try:
+            suggestion = suggest_prompt_rewrite(current_prompt)
+        except Exception:
+            suggestion = None
+        
+        if suggestion is None:
+            from prompt_helper import stub_suggest
+            suggestion = stub_suggest(current_prompt)
+        
+        st.session_state.helper_suggestion = suggestion
+        st.session_state.last_analyzed_prompt = current_prompt
+    
+    # Show compact agent popup if there's a suggestion
+    if st.session_state.helper_suggestion and current_prompt and st.session_state.show_helper:
+        s = st.session_state.helper_suggestion
+        
+        # Determine if optimization is valuable
+        has_optimization = s.get("rewrite") and s.get("rewrite") != current_prompt
+        will_save = s.get("will_save_cost", False)
+        
+        if has_optimization and will_save:
+            # Show optimization popup
+            with st.container():
+                st.markdown(
+                    """
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                border-radius: 10px; padding: 15px; margin-bottom: 20px;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div style="color: white;">
+                                <div style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">
+                                    🤖 Agent Suggestion
+                                </div>
+                                <div style="font-size: 12px; opacity: 0.9;">
+                                    I can optimize this for the small model
+                                </div>
+                            </div>
+                            <div style="background: rgba(255,255,255,0.2); border-radius: 20px; 
+                                        padding: 5px 12px; color: white; font-size: 12px; font-weight: bold;">
+                                💰 Save cost
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                # Compact info
+                col1, col2 = st.columns(2)
+                with col1:
+                    route_emoji = "🟢" if s.get("predicted_route") == "small" else "🔴"
+                    st.caption(f"{route_emoji} {s.get('predicted_route', '—').title()} model")
+                with col2:
+                    st.caption(f"Difficulty: {s.get('predicted_difficulty', 0):.1f}")
+                
+                # Show optimized prompt in expander
+                with st.expander("📝 See optimized prompt", expanded=False):
+                    st.info(s.get("rewrite", ""))
+                    st.caption(f"💡 {s.get('explanation', '')}")
+                
+                # Action buttons
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    if st.button("✨ Use this", use_container_width=True, type="primary", key="use_optimized"):
+                        st.session_state["sidebar_copied_prompt"] = s.get("rewrite", "")
+                        st.session_state.last_analyzed_prompt = ""
+                        st.rerun()
+                with col2:
+                    if st.button("✕", use_container_width=True, key="dismiss_helper"):
+                        st.session_state.show_helper = False
+                        st.rerun()
+                
+                st.markdown("---")
+    
     if st.session_state.last_result:
         result = st.session_state.last_result
         
@@ -265,77 +352,9 @@ with right_col:
             use_container_width=True,
             hide_index=True
         )
-
-
-# ── Agent 5: Prompt Helper Sidebar ─────────────────────────────────────────
-
-with st.sidebar:
-    st.header("💡 Prompt Optimizer")
-    st.caption("Optimize your prompt for the small model to save cost")
-
-    # Initialize sidebar session state
-    if "helper_suggestion" not in st.session_state:
-        st.session_state.helper_suggestion = None
-    if "last_analyzed_prompt" not in st.session_state:
-        st.session_state.last_analyzed_prompt = ""
-
-    # Auto-analyze the main prompt when it changes
-    current_prompt = prompt.strip() if 'prompt' in locals() else ""
-    
-    if current_prompt and current_prompt != st.session_state.last_analyzed_prompt:
-        # Automatically analyze when prompt changes
-        with st.spinner("Analyzing..."):
-            try:
-                suggestion = suggest_prompt_rewrite(current_prompt)
-            except Exception:
-                suggestion = None
-
-            if suggestion is None:
-                # Fall back to stub if Bedrock not available
-                from prompt_helper import stub_suggest
-                suggestion = stub_suggest(current_prompt)
-
-            st.session_state.helper_suggestion = suggestion
-            st.session_state.last_analyzed_prompt = current_prompt
-
-    # Show analysis if available
-    if st.session_state.helper_suggestion and current_prompt:
-        s = st.session_state.helper_suggestion
         
-        # Cost savings indicator
-        if s.get("will_save_cost"):
-            st.success("💰 Optimization available!")
-        else:
-            st.info("✓ Prompt looks good for small model")
-        
-        # Predicted route badge
-        route_color = "🟢" if s.get("predicted_route") == "small" else "🔴"
-        st.markdown(f"**Current prediction:** {route_color} {s.get('predicted_route', '—').title()} model")
-        st.markdown(f"**Category:** `{s.get('category', '—')}`")
-        st.markdown(f"**Difficulty:** `{s.get('predicted_difficulty', 0):.1f}`")
-
-        # Show optimization if different from original
-        if s.get("rewrite") and s.get("rewrite") != current_prompt:
-            st.divider()
-            st.markdown("**Optimized version:**")
-            st.info(s.get("rewrite", ""))
-
-            st.markdown("**Why:**")
-            st.caption(s.get("explanation", ""))
-
-            # One-click apply button
-            if st.button("✨ Use optimized prompt", use_container_width=True, type="primary"):
-                st.session_state["sidebar_copied_prompt"] = s.get("rewrite", "")
-                st.session_state.last_analyzed_prompt = ""  # Reset to trigger re-analysis
+        # Re-enable helper button if dismissed
+        if not st.session_state.show_helper:
+            if st.button("🤖 Show agent suggestions", use_container_width=True):
+                st.session_state.show_helper = True
                 st.rerun()
-        else:
-            st.caption(s.get("explanation", ""))
-    
-    elif not current_prompt:
-        st.info("👈 Enter a prompt in the main input to see optimization suggestions")
-    
-    # Manual refresh button
-    st.divider()
-    if st.button("🔄 Re-analyze", use_container_width=True):
-        st.session_state.last_analyzed_prompt = ""  # Force re-analysis
-        st.rerun()
