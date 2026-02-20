@@ -2,6 +2,7 @@ import boto3
 import json
 import time
 import os
+from pathlib import Path
 from models import CompletionResult
 
 
@@ -21,14 +22,21 @@ class BedrockAdapter:
             )
         else:
             self.client = boto3.client("bedrock-runtime", region_name=region)
-        self.model_map = {
-            "haiku": "anthropic.claude-3-haiku-20240307-v1:0",
-            "sonnet": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",  # Inference profile for AWS Academy
-        }
-        self.pricing = {
-            "haiku":  {"input": 0.80,  "output": 4.00},   # per 1M tokens
-            "sonnet": {"input": 3.00,  "output": 15.00},
-        }
+        
+        # Load model mapping from JSON
+        config_path = Path(__file__).parent / "bedrock_models.json"
+        with open(config_path) as f:
+            config = json.load(f)
+        
+        self.model_map = config["model_map"]
+        self.pricing = config["pricing"]
+        
+        # Resolve small/large model names from env vars to Bedrock IDs
+        small_model = os.getenv("SMALL_MODEL_NAME", "").strip()
+        large_model = os.getenv("LARGE_MODEL_NAME", "").strip()
+        
+        self.small_model_id = self.model_map.get(small_model) or self.model_map.get("haiku")
+        self.large_model_id = self.model_map.get(large_model) or self.model_map.get("sonnet")
 
     def complete(self, prompt: str, model_id: str) -> CompletionResult:
         """
@@ -36,16 +44,24 @@ class BedrockAdapter:
         
         Args:
             prompt: The text prompt to send
-            model_id: Short model identifier ("haiku" or "sonnet")
+            model_id: Short model identifier ("haiku", "sonnet", or env var names)
             
         Returns:
             CompletionResult with response text, tokens, cost, and latency
         """
         start_time = time.time()
         
+        # Resolve to actual Bedrock model ID
+        if model_id == "small":
+            bedrock_model_id = self.small_model_id
+        elif model_id == "large":
+            bedrock_model_id = self.large_model_id
+        else:
+            bedrock_model_id = BEDROCK_MODEL_MAP.get(model_id, model_id)
+        
         # Call Bedrock Converse API
         response = self.client.converse(
-            modelId=self.model_map[model_id],
+            modelId=bedrock_model_id,
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             inferenceConfig={"maxTokens": 1024, "temperature": 0.0},
         )

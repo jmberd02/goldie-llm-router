@@ -77,9 +77,9 @@ def pick_model(classification: Classification, ui_thresholds: dict = None) -> tu
     4. Return small if it clears, otherwise sonnet
     
     Threshold tuning:
-    - Base threshold: 0.40 (lower for small local model - qwen2.5:1.5b)
+    - Base threshold: 0.40 (lower for small local model - qwen3:8b)
     - Difficulty multiplier: 0.2 (how much difficulty increases threshold)
-    - Ollama qwen2.5:1.5b scores (estimated):
+    - Ollama qwen3:8b scores (estimated):
       * mmlu_pro (general_qa): 0.45 - passes for simple questions
       * aime_25 (math): 0.15 - only basic arithmetic
       * livecodebench (code): 0.20 - minimal coding
