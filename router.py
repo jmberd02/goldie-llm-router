@@ -19,7 +19,7 @@ Then fill out the classification.
 
 Respond with exactly this structure:
 {{
-  "subtasks": ["string", ...],
+  "subtasks": ["task1", "task2", ...],
   "task_categories": {{
     "math": 0.0,
     "code_operation": 0.0,
@@ -29,9 +29,17 @@ Respond with exactly this structure:
     "general_qa": 0.0
   }},
   "difficulty": 0.0,
-  "dominant_category": "string",
+  "dominant_category": "one of: math, code_operation, multi_step_reasoning, agentic_tool_use, long_context, general_qa",
   "escalate": false
 }}
+
+IMPORTANT: dominant_category must be exactly one of these values:
+- math
+- code_operation
+- multi_step_reasoning
+- agentic_tool_use
+- long_context
+- general_qa
 
 Difficulty guide: 0.2=simple lookup, 0.4=simple reasoning, 0.6=multi-step, 0.8=complex analysis, 1.0=frontier research
 Escalation rule: if subtasks > 2 OR difficulty >= 0.7, set escalate: true
@@ -94,6 +102,11 @@ def pick_model(classification: Classification, ui_thresholds: dict = None) -> tu
     # Note: difficulty score is unreliable (self-assessed confidence problem)
     # The subtask count and escalate flag are the trustworthy signals
     category = classification.dominant_category
+    
+    # Safety check: if category is invalid, default to sonnet
+    if category not in TASK_TO_EVAL:
+        return "sonnet", f"invalid category '{category}' returned by classifier, defaulting to large model"
+    
     eval_key = TASK_TO_EVAL[category]
     threshold = get_threshold(category, ui_thresholds)
     

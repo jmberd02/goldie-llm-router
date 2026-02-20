@@ -1,12 +1,14 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import time
 import random
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from models import CompletionResult, Classification
+from models import CompletionResult, Classification, UI_CATEGORY_NAMES
 
 # Force stub mode - frontend only, no model calls
 USE_STUB = False
@@ -95,15 +97,12 @@ def model_badge(model_used: str, model_id: str) -> str:
     return f"🔴 Large ({model_id})"
 
 
-# Map UI slider names to router category names
-SLIDER_TO_CATEGORY = {
-    "Math": "math",
-    "Code Operations": "code_operation",
-    "Reasoning": "multi_step_reasoning",
-    "Agentic Tool Use": "agentic_tool_use",
-    "Long Context": "long_context",
-    "General QA": "general_qa",
-}
+def _update_slider(scale_name: str):
+    """Callback to update slider value and save to localStorage."""
+    threshold = st.session_state[f"{scale_name}_threshold"]
+    st.session_state.sliders[scale_name] = threshold
+    # Save to localStorage
+    save_thresholds_to_storage(st.session_state.sliders)
 
 
 def handle_submit(prompt: str, force_escalate: bool):
@@ -112,11 +111,11 @@ def handle_submit(prompt: str, force_escalate: bool):
         st.error("Please enter a prompt")
         return
     
-    # Build ui_thresholds dict from session state sliders
+    # Build ui_thresholds dict from session state sliders using shared mapping
     ui_thresholds = {
-        SLIDER_TO_CATEGORY[name]: value 
+        UI_CATEGORY_NAMES[name]: value 
         for name, value in st.session_state.sliders.items() 
-        if name in SLIDER_TO_CATEGORY
+        if name in UI_CATEGORY_NAMES
     }
     
     with st.spinner("Routing..." if not force_escalate else "Sending to large model..."):
@@ -275,13 +274,48 @@ THRESHOLD_DEFAULTS = {
     "General QA": float(os.getenv("THRESHOLD_GENERAL_QA", 0.5)),
 }
 
-# Initialize sliders from query params (persisted in URL) or defaults
+
+def load_thresholds_from_storage():
+    """Load thresholds from localStorage via JavaScript."""
+    html = """
+    <script>
+    const thresholds = localStorage.getItem('goldie_thresholds');
+    if (thresholds) {
+        window.parent.postMessage({type: 'streamlit:setComponentValue', value: thresholds}, '*');
+    } else {
+        window.parent.postMessage({type: 'streamlit:setComponentValue', value: null}, '*');
+    }
+    </script>
+    """
+    return components.html(html, height=0)
+
+
+def save_thresholds_to_storage(thresholds):
+    """Save thresholds to localStorage via JavaScript."""
+    thresholds_json = json.dumps(thresholds).replace("'", "\\'")
+    html = f"""
+    <script>
+    localStorage.setItem('goldie_thresholds', '{thresholds_json}');
+    </script>
+    """
+    components.html(html, height=0)
+
+
+# Initialize sliders from localStorage or defaults
 if "sliders" not in st.session_state:
-    query_params = st.query_params
-    st.session_state.sliders = {}
-    for key, default in THRESHOLD_DEFAULTS.items():
-        param_key = f"threshold_{key.replace(' ', '_')}"
-        st.session_state.sliders[key] = float(query_params.get(param_key, default))
+    st.session_state.sliders = THRESHOLD_DEFAULTS.copy()
+    st.session_state.storage_loaded = False
+
+# Try to load from localStorage on first run
+if not st.session_state.storage_loaded:
+    stored = load_thresholds_from_storage()
+    if stored:
+        try:
+            stored_thresholds = json.loads(stored)
+            st.session_state.sliders.update(stored_thresholds)
+        except:
+            pass
+    st.session_state.storage_loaded = True
 
 # Handle optimization completion BEFORE any widgets are created
 if st.session_state.optimizing:
@@ -296,10 +330,6 @@ if st.session_state.optimizing:
     
     # Directly update the text area value in session state
     st.session_state.main_prompt_input = optimized
-    
-    st.success(f"✨ Prompt optimized! (Length: {len(st.session_state.original_prompt)} → {len(optimized)})")
-    time.sleep(1)
-    st.rerun()
 
 # Modern header with custom styling
 st.markdown("""
@@ -530,7 +560,6 @@ with left_col:
             st.session_state.main_prompt_input = ""
         else:
             st.session_state.main_prompt_input = DEMO_PROMPTS[selected]["prompt"]
-        st.rerun()
 
     is_custom = DEMO_PROMPTS[st.session_state.selected_demo]["label"] == "Custom..."
     
@@ -572,8 +601,8 @@ with left_col:
         if st.session_state.get("original_prompt"):
             if st.button("Undo", use_container_width=True, key="undo_optimize", help="Restore the original prompt"):
                 st.session_state.sidebar_copied_prompt = st.session_state.original_prompt
+                st.session_state.main_prompt_input = st.session_state.original_prompt
                 st.session_state.original_prompt = ""
-                st.rerun()
 
     # Optimizer confirmation
     if st.session_state.show_optimizer:
@@ -588,11 +617,9 @@ with left_col:
             if st.button("Yes, Optimize", type="primary", use_container_width=True, key="confirm_optimize"):
                 st.session_state.show_optimizer = False
                 st.session_state.optimizing = True
-                st.rerun()
         with col_no:
             if st.button("Cancel", use_container_width=True, key="cancel_optimize"):
                 st.session_state.show_optimizer = False
-                st.rerun()
 
     # Action buttons
     btn_cols = st.columns([1, 1])
@@ -648,12 +675,9 @@ with right_col:
                 value=st.session_state.sliders[scale_name],
                 step=0.05,
                 key=f"{scale_name}_threshold",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                on_change=lambda name=scale_name: _update_slider(name)
             )
-            
-            # Update session state and URL
-            st.session_state.sliders[scale_name] = threshold
-            st.query_params[f"threshold_{scale_name.replace(' ', '_')}"] = str(threshold)
             
             # Visual indicator showing the threshold position
             st.markdown(f"""
@@ -679,12 +703,9 @@ with right_col:
                 value=st.session_state.sliders[scale_name],
                 step=0.05,
                 key=f"{scale_name}_threshold",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                on_change=lambda name=scale_name: _update_slider(name)
             )
-            
-            # Update session state and URL
-            st.session_state.sliders[scale_name] = threshold
-            st.query_params[f"threshold_{scale_name.replace(' ', '_')}"] = str(threshold)
             
             # Visual indicator showing the threshold position
             st.markdown(f"""
