@@ -11,7 +11,7 @@ class OllamaAdapter:
     def __init__(self, base_url: str = "http://localhost:11434"):
         self.base_url = base_url
         self.model_map = {
-            "small": "llama3.2:3b",  # Faster, smaller model
+            "small": "llama3.2",  # Standard llama3.2 model
         }
     
     def complete(self, prompt: str, model_id: str) -> CompletionResult:
