@@ -17,6 +17,14 @@ Request: {prompt}
 First, list the subtasks required to fully complete this request.
 Then fill out the classification.
 
+Category definitions:
+- general_qa: Factual questions, lookups, definitions, explanations (e.g., "What is X?", "Explain Y", "Who is Z?")
+- math: Mathematical calculations, equations, numerical problem solving
+- code_operation: Writing, editing, debugging, or analyzing code (e.g., "Write a function", "Fix this bug", "Refactor code")
+- multi_step_reasoning: Complex logical reasoning requiring multiple inference steps
+- agentic_tool_use: Tasks requiring multiple tools/actions in sequence (e.g., "Check calendar AND set reminder")
+- long_context: Questions about long documents, 10-Ks, research papers, large codebases
+
 Respond with exactly this structure:
 {{
   "subtasks": ["task1", "task2", ...],
