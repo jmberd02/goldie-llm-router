@@ -1,0 +1,8 @@
+{
+  "model_map": {
+    "Claude 3.5 Sonnet (Oct '24)": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+  },
+  "pricing": {
+    "Claude 3.5 Sonnet (Oct '24)": { "input": 3.00, "output": 15.00 }
+  }
+}

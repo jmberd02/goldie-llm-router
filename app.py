@@ -1,6 +1,11 @@
 import streamlit as st
 import time
 import random
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from models import CompletionResult, Classification
 
 # Force stub mode - frontend only, no model calls
@@ -187,7 +192,7 @@ def _optimize_with_ollama(prompt: str) -> str:
         response = requests.post(
             'http://localhost:11434/api/generate',
             json={
-                'model': 'qwen2.5:1.5b',
+                'model': 'qwen3:8b',
                 'prompt': f"{system_prompt}\n\nOriginal prompt: {prompt}\n\nImproved prompt:",
                 'stream': False,
                 'options': {
@@ -260,15 +265,23 @@ if "original_prompt" not in st.session_state:
     st.session_state.original_prompt = ""
 if "optimizing" not in st.session_state:
     st.session_state.optimizing = False
+# Load threshold defaults from .env
+THRESHOLD_DEFAULTS = {
+    "Math": float(os.getenv("THRESHOLD_MATH", 0.5)),
+    "Code Operations": float(os.getenv("THRESHOLD_CODE_OPERATIONS", 0.5)),
+    "Reasoning": float(os.getenv("THRESHOLD_REASONING", 0.5)),
+    "Agentic Tool Use": float(os.getenv("THRESHOLD_AGENTIC_TOOL_USE", 0.5)),
+    "Long Context": float(os.getenv("THRESHOLD_LONG_CONTEXT", 0.5)),
+    "General QA": float(os.getenv("THRESHOLD_GENERAL_QA", 0.5)),
+}
+
+# Initialize sliders from query params (persisted in URL) or defaults
 if "sliders" not in st.session_state:
-    st.session_state.sliders = {
-        "Math": 0.5,
-        "Code Operations": 0.5,
-        "Reasoning": 0.5,
-        "Agentic Tool Use": 0.5,
-        "Long Context": 0.5,
-        "General QA": 0.5,
-    }
+    query_params = st.query_params
+    st.session_state.sliders = {}
+    for key, default in THRESHOLD_DEFAULTS.items():
+        param_key = f"threshold_{key.replace(' ', '_')}"
+        st.session_state.sliders[key] = float(query_params.get(param_key, default))
 
 # Handle optimization completion BEFORE any widgets are created
 if st.session_state.optimizing:
@@ -613,8 +626,9 @@ with right_col:
                 label_visibility="collapsed"
             )
             
-            # Update session state
+            # Update session state and URL
             st.session_state.sliders[scale_name] = threshold
+            st.query_params[f"threshold_{scale_name.replace(' ', '_')}"] = str(threshold)
             
             # Visual indicator showing the threshold position
             st.markdown(f"""
@@ -643,8 +657,9 @@ with right_col:
                 label_visibility="collapsed"
             )
             
-            # Update session state
+            # Update session state and URL
             st.session_state.sliders[scale_name] = threshold
+            st.query_params[f"threshold_{scale_name.replace(' ', '_')}"] = str(threshold)
             
             # Visual indicator showing the threshold position
             st.markdown(f"""

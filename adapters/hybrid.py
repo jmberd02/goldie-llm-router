@@ -8,7 +8,7 @@ from adapters.bedrock import BedrockAdapter
 class HybridAdapter:
     """
     Hybrid adapter that uses:
-    - Ollama (qwen2.5:1.5b) for small model requests
+    - Ollama (qwen3:8b) for small model requests
     - Bedrock (Claude Sonnet) for large model requests
     """
     
