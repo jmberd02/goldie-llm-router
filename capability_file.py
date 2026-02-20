@@ -49,8 +49,7 @@ def load_capability_file() -> dict[str, dict]:
     Load capability data from capability_data.json and map models based on env variables.
     
     Env variables:
-    - SMALL_MODEL_NAME: Name of small model (e.g., "Gemma 3 1B Instruct")
-    - CLASSIFICATION_MODEL_NAME: Name of classification model (e.g., "Claude 3.5 Haiku")
+    - SMALL_MODEL_NAME: Name of small model (e.g., "Gemma 3 1B Instruct") - also used for classification
     - LARGE_MODEL_NAME: Name of large model (e.g., "Claude 3.5 Sonnet (Oct '24)")
     
     To update with latest data from Artificial Analysis:
@@ -61,7 +60,6 @@ def load_capability_file() -> dict[str, dict]:
     
     # Get model names from env
     small_model_name = os.getenv("SMALL_MODEL_NAME", "Gemma 3 1B Instruct")
-    classification_model_name = os.getenv("CLASSIFICATION_MODEL_NAME", "Claude 3.5 Haiku")
     large_model_name = os.getenv("LARGE_MODEL_NAME", "Claude 3.5 Sonnet (Oct '24)")
     
     result = {}
@@ -89,19 +87,15 @@ def load_capability_file() -> dict[str, dict]:
                         "price_per_1m_output": price.get("price_per_1m_output", 0.0),
                     }
                 
-                # Map small model
+                # Map small model (also used for classification as "haiku")
                 if small_model_name in all_models:
-                    result["small"] = flatten_model(all_models[small_model_name])
+                    small_caps = flatten_model(all_models[small_model_name])
+                    result["small"] = small_caps
+                    result["haiku"] = small_caps  # Classification uses same model as small
                 else:
                     print(f"Warning: Small model '{small_model_name}' not found, using defaults")
                     result["small"] = DEFAULT_CAPABILITIES["small"]
-                
-                # Map classification model (haiku)
-                if classification_model_name in all_models:
-                    result["haiku"] = flatten_model(all_models[classification_model_name])
-                else:
-                    print(f"Warning: Classification model '{classification_model_name}' not found, using defaults")
-                    result["haiku"] = DEFAULT_CAPABILITIES["haiku"]
+                    result["haiku"] = DEFAULT_CAPABILITIES["small"]
                 
                 # Map large model (sonnet)
                 if large_model_name in all_models:
