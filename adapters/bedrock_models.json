@@ -1,8 +1,14 @@
 {
   "model_map": {
-    "Claude 3.5 Sonnet (Oct '24)": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    "Claude 3.5 Sonnet (Oct '24)": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "Claude 4.5 Sonnet (Non-reasoning)": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+    "Claude Sonnet 4.6 (Non-reasoning, High Effort)": "us.anthropic.claude-sonnet-4-6-20250514-v1:0",
+    "sonnet": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
   },
   "pricing": {
-    "Claude 3.5 Sonnet (Oct '24)": { "input": 3.00, "output": 15.00 }
+    "Claude 3.5 Sonnet (Oct '24)": { "input": 3.00, "output": 15.00 },
+    "Claude 4.5 Sonnet (Non-reasoning)": { "input": 3.00, "output": 15.00 },
+    "Claude Sonnet 4.6 (Non-reasoning, High Effort)": { "input": 3.00, "output": 15.00 },
+    "sonnet": { "input": 3.00, "output": 15.00 }
   }
 }

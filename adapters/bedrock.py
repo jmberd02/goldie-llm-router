@@ -57,7 +57,7 @@ class BedrockAdapter:
         elif model_id == "large":
             bedrock_model_id = self.large_model_id
         else:
-            bedrock_model_id = BEDROCK_MODEL_MAP.get(model_id, model_id)
+            bedrock_model_id = self.model_map.get(model_id, model_id)
         
         # Call Bedrock Converse API
         response = self.client.converse(

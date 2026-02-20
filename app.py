@@ -645,10 +645,9 @@ with left_col:
             label_visibility="collapsed",
         )
 
-with right_col:
-    # ── Sliding Scales Section ──
-    st.markdown('<p class="section-title">Thresholds</p>', unsafe_allow_html=True)
-    
+@st.fragment
+def threshold_sliders():
+    """Fragment to isolate threshold sliders from main app reruns."""
     # Define scale names in order
     scale_names = [
         "Math",
@@ -717,6 +716,12 @@ with right_col:
                     height: 8px; border-radius: 4px; margin-bottom: 1rem;">
                 </div>
             """, unsafe_allow_html=True)
+
+
+with right_col:
+    # ── Sliding Scales Section ──
+    st.markdown('<p class="section-title">Thresholds</p>', unsafe_allow_html=True)
+    threshold_sliders()
 
 # ── Results Section (below input) ──
 if st.session_state.last_result:
