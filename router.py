@@ -1,0 +1,184 @@
+from __future__ import annotations
+import json
+import time
+from models import Classification, CompletionResult, TASK_TO_EVAL
+from capability_file import CAPABILITY_FILE
+from observability import log_routing_decision, log_to_neo4j
+
+
+CLASSIFICATION_PROMPT_TEMPLATE = """Analyze this request and respond in JSON only. No markdown, no explanation, just the JSON object.
+
+Request: {prompt}
+
+First, list the subtasks required to fully complete this request.
+Then fill out the classification.
+
+Respond with exactly this structure:
+{{
+  "subtasks": ["string", ...],
+  "task_categories": {{
+    "math": 0.0,
+    "code_operation": 0.0,
+    "multi_step_reasoning": 0.0,
+    "agentic_tool_use": 0.0,
+    "long_context": 0.0,
+    "general_qa": 0.0
+  }},
+  "difficulty": 0.0,
+  "dominant_category": "string",
+  "escalate": false
+}}
+
+Difficulty guide: 0.2=simple lookup, 0.4=simple reasoning, 0.6=multi-step, 0.8=complex analysis, 1.0=frontier research
+Escalation rule: if subtasks > 2 OR difficulty >= 0.7, set escalate: true
+"""
+
+
+def pick_model(classification: Classification) -> tuple[str, str]:
+    """
+    Returns (model_id, reason) based on classification and capability file.
+    
+    Routing rules:
+    1. If classification.escalate is True → sonnet
+    2. Check if haiku's benchmark score clears the difficulty-adjusted threshold
+    3. Check frontier difficulty gate (difficulty > 0.8 AND hle < 0.05)
+    4. Return haiku if it clears, otherwise sonnet
+    
+    Threshold tuning:
+    - Base threshold: 0.65 (adjust lower to route more to haiku, higher for more conservative)
+    - Difficulty multiplier: 0.2 (how much difficulty increases threshold)
+    - With real Artificial Analysis data, Haiku 3.5 scores:
+      * mmlu_pro (general_qa): 0.634 - barely misses base threshold
+      * aime_25 (math): 0.721 - passes for easy/medium math tasks
+      * livecodebench (code): 0.314 - always escalates
+      * gpqa (reasoning): 0.408 - always escalates
+      * tau2 (agentic): 0.246 - always escalates
+    - Consider lowering base threshold to 0.55-0.60 for more haiku usage
+    """
+    # Rule 1: Hard escalation from classification
+    if classification.escalate:
+        return "sonnet", "classification flagged escalation (subtasks > 2 or difficulty >= 0.7)"
+    
+    # Rule 2: Look up eval key and calculate threshold
+    category = classification.dominant_category
+    eval_key = TASK_TO_EVAL[category]
+    threshold = 0.65 + (classification.difficulty * 0.2)
+    
+    haiku_score = CAPABILITY_FILE["haiku"].get(eval_key, 0.0)
+    haiku_hle = CAPABILITY_FILE["haiku"]["hle"]
+    
+    # Rule 3: Frontier difficulty gate
+    is_frontier_task = classification.difficulty > 0.8 and haiku_hle < 0.05
+    
+    # Rule 4: Check if haiku clears threshold
+    if haiku_score >= threshold and not is_frontier_task:
+        return "haiku", f"haiku score {haiku_score:.3f} >= threshold {threshold:.3f} for {category}"
+    
+    # Otherwise escalate to sonnet
+    if is_frontier_task:
+        reason = f"frontier difficulty {classification.difficulty:.2f} with low HLE {haiku_hle:.3f}"
+    else:
+        reason = f"haiku score {haiku_score:.3f} < threshold {threshold:.3f} for {category}"
+    
+    return "sonnet", reason
+
+
+def route(prompt: str, force_escalate: bool = False, adapter=None) -> CompletionResult:
+    """
+    Main routing entry point. Three-step flow:
+    1. CLASSIFY  — small model returns JSON classification (no answer)
+    2. ROUTE     — pick_model() decides which model to use
+    3. EXECUTE   — chosen model returns actual answer
+    
+    Args:
+        prompt: User's request
+        force_escalate: If True, skip classification and go straight to sonnet
+        adapter: Model adapter (BedrockAdapter or stub). Must have complete(prompt, model_id) method.
+    
+    Returns:
+        CompletionResult with combined token counts and costs from both calls
+    """
+    start_time = time.time()
+    
+    # Use real BedrockAdapter if no adapter provided
+    if adapter is None:
+        from adapters.bedrock import BedrockAdapter
+        adapter = BedrockAdapter()
+    
+    # Step 1: Handle force escalation
+    if force_escalate:
+        result = adapter.complete(prompt, "sonnet")
+        result.escalated = True
+        result.routing_reason = "user forced escalation"
+        result.classification = None
+        # Log observability
+        try:
+            log_routing_decision(result, prompt)
+            log_to_neo4j(prompt, result)
+        except Exception as e:
+            print(f"[observability] warning: {e}")
+        return result
+    
+    # Step 2: Classification call (Haiku returns JSON only)
+    classification_prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(prompt=prompt)
+    classification_result = adapter.complete(classification_prompt, "haiku")
+    
+    # Step 3: Parse classification JSON
+    try:
+        # Strip markdown code blocks if present
+        response_text = classification_result.response.strip()
+        if response_text.startswith("```"):
+            # Extract JSON from markdown code block
+            lines = response_text.split("\n")
+            response_text = "\n".join(lines[1:-1]) if len(lines) > 2 else response_text
+        
+        classification_data = json.loads(response_text)
+        classification = Classification(
+            subtasks=classification_data["subtasks"],
+            task_categories=classification_data["task_categories"],
+            difficulty=classification_data["difficulty"],
+            dominant_category=classification_data["dominant_category"],
+            escalate=classification_data["escalate"]
+        )
+    except (json.JSONDecodeError, KeyError, ValueError) as e:
+        # Parse failed — default to sonnet
+        result = adapter.complete(prompt, "sonnet")
+        result.escalated = True
+        result.routing_reason = f"classification parse failed ({type(e).__name__}), defaulting to large model"
+        result.classification = None
+        # Add classification call costs
+        result.input_tokens += classification_result.input_tokens
+        result.output_tokens += classification_result.output_tokens
+        result.cost_usd += classification_result.cost_usd
+        result.latency_ms = (time.time() - start_time) * 1000
+        # Log observability
+        try:
+            log_routing_decision(result, prompt)
+            log_to_neo4j(prompt, result)
+        except Exception as e:
+            print(f"[observability] warning: {e}")
+        return result
+    
+    # Step 4: Route based on classification
+    model_id, routing_reason = pick_model(classification)
+    
+    # Step 5: Execution call (chosen model returns actual answer)
+    execution_result = adapter.complete(prompt, model_id)
+    
+    # Step 6: Build final result with combined costs
+    execution_result.routing_reason = routing_reason
+    execution_result.escalated = (model_id == "sonnet")
+    execution_result.classification = classification
+    execution_result.input_tokens += classification_result.input_tokens
+    execution_result.output_tokens += classification_result.output_tokens
+    execution_result.cost_usd += classification_result.cost_usd
+    execution_result.latency_ms = (time.time() - start_time) * 1000
+    
+    # Log observability
+    try:
+        log_routing_decision(execution_result, prompt)
+        log_to_neo4j(prompt, execution_result)
+    except Exception as e:
+        print(f"[observability] warning: {e}")
+    
+    return execution_result

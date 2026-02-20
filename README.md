@@ -4,13 +4,29 @@ Routes incoming prompts to a small or large model based on task classification
 and Artificial Analysis benchmark scores.
 
 ## Setup
-```
+```bash
 pip install -r requirements.txt
 cp .env .env.local  # fill in your keys
 ```
 
+### Fetch Latest Capability Data (Optional)
+
+The router includes default capability scores, but you can fetch the latest benchmark data from Artificial Analysis:
+
+1. Get a free API key from https://artificialanalysis.ai/api-access-preview
+2. Add it to your `.env` file:
+   ```
+   ARTIFICIAL_ANALYSIS_API_KEY=your_key_here
+   ```
+3. Run the fetch script:
+   ```bash
+   python fetch_capabilities.py
+   ```
+
+This creates `capability_data.json` with the latest scores (not committed to git).
+
 ## Run
-```
+```bash
 streamlit run app.py
 ```
 
@@ -23,3 +39,4 @@ streamlit run app.py
 - `tools/`            — mocked demo tools
 - `observability.py`  — Datadog metrics + Neo4j graph logging
 - `app.py`            — Streamlit UI
+- `fetch_capabilities.py` — Script to fetch latest benchmark data from Artificial Analysis API

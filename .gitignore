@@ -1,0 +1,32 @@
+# Environment variables
+.env
+
+# Capability data (fetched from API, not committed)
+capability_data.json
+capability_data_raw.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
