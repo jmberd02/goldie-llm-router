@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Default fallback capabilities if capability_data.json doesn't exist
 DEFAULT_CAPABILITIES: dict[str, dict] = {
-    "small": {  # Ollama qwen2.5:1.5b
+    "small": {  # Ollama qwen3:8b
         "mmlu_pro": 0.45,        # general_qa - basic factual knowledge
         "livecodebench": 0.20,   # code_operation - limited coding ability
         "gpqa": 0.25,            # multi_step_reasoning - weak reasoning
@@ -43,8 +43,15 @@ DEFAULT_CAPABILITIES: dict[str, dict] = {
 
 def load_capability_file() -> dict[str, dict]:
     """
-    Load capability data from capability_data.json if it exists,
+    Load capability data from capability_data.json if it exists and has the expected structure,
     otherwise use default fallback values.
+    
+    Expected structure:
+    {
+        "small": { "mmlu_pro": 0.45, "hle": 0.01, ... },
+        "haiku": { "mmlu_pro": 0.71, "hle": 0.03, ... },
+        "sonnet": { "mmlu_pro": 0.90, "hle": 0.08, ... }
+    }
     
     To update with latest data from Artificial Analysis:
         export ARTIFICIAL_ANALYSIS_API_KEY=your_key
@@ -55,8 +62,11 @@ def load_capability_file() -> dict[str, dict]:
     if capability_file.exists():
         try:
             with open(capability_file) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
+                data = json.load(f)
+            # Validate expected structure
+            if isinstance(data, dict) and "small" in data and "haiku" in data and "sonnet" in data:
+                return data
+        except (json.JSONDecodeError, IOError, KeyError):
             pass
     
     return DEFAULT_CAPABILITIES

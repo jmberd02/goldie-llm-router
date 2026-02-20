@@ -11,6 +11,16 @@ TASK_TO_EVAL = {
     "math":                 "aime_25",
 }
 
+# UI-friendly names mapped to internal category names
+UI_CATEGORY_NAMES = {
+    "Math": "math",
+    "Code Operations": "code_operation",
+    "Reasoning": "multi_step_reasoning",
+    "Agentic Tool Use": "agentic_tool_use",
+    "Long Context": "long_context",
+    "General QA": "general_qa",
+}
+
 
 @dataclass
 class Classification:
