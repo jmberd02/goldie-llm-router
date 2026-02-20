@@ -266,63 +266,72 @@ with right_col:
 # ── Agent 5: Prompt Helper Sidebar ─────────────────────────────────────────
 
 with st.sidebar:
-    st.header("✨ Prompt Helper")
-    st.caption("Rewrite your prompt for cleaner routing")
+    st.header("💡 Prompt Optimizer")
+    st.caption("Optimize your prompt for the small model to save cost")
 
     # Initialize sidebar session state
     if "helper_suggestion" not in st.session_state:
         st.session_state.helper_suggestion = None
-    if "helper_prompt" not in st.session_state:
-        st.session_state.helper_prompt = ""
+    if "last_analyzed_prompt" not in st.session_state:
+        st.session_state.last_analyzed_prompt = ""
 
-    sidebar_prompt = st.text_area(
-        "Enter a prompt to improve",
-        height=120,
-        placeholder="e.g. 'help me with my calendar'",
-        key="sidebar_prompt_input"
-    )
+    # Auto-analyze the main prompt when it changes
+    current_prompt = prompt.strip() if 'prompt' in locals() else ""
+    
+    if current_prompt and current_prompt != st.session_state.last_analyzed_prompt:
+        # Automatically analyze when prompt changes
+        with st.spinner("Analyzing..."):
+            try:
+                suggestion = suggest_prompt_rewrite(current_prompt)
+            except Exception:
+                suggestion = None
 
-    if st.button("✨ Suggest Rewrite", use_container_width=True):
-        if sidebar_prompt.strip():
-            with st.spinner("Analyzing..."):
-                try:
-                    suggestion = suggest_prompt_rewrite(sidebar_prompt)
-                except Exception:
-                    suggestion = None
+            if suggestion is None:
+                # Fall back to stub if Bedrock not available
+                from prompt_helper import stub_suggest
+                suggestion = stub_suggest(current_prompt)
 
-                if suggestion is None:
-                    # Fall back to stub if Bedrock not available
-                    suggestion = {
-                        "rewrite": f"Please answer this question directly: {sidebar_prompt}",
-                        "category": "general_qa",
-                        "predicted_difficulty": 0.2,
-                        "predicted_route": "small",
-                        "explanation": "Stub response — Bedrock not available."
-                    }
+            st.session_state.helper_suggestion = suggestion
+            st.session_state.last_analyzed_prompt = current_prompt
 
-                st.session_state.helper_suggestion = suggestion
-                st.session_state.helper_prompt = sidebar_prompt
-        else:
-            st.warning("Enter a prompt first.")
-
-    if st.session_state.helper_suggestion:
+    # Show analysis if available
+    if st.session_state.helper_suggestion and current_prompt:
         s = st.session_state.helper_suggestion
-        st.divider()
-
+        
+        # Cost savings indicator
+        if s.get("will_save_cost"):
+            st.success("💰 Optimization available!")
+        else:
+            st.info("✓ Prompt looks good for small model")
+        
         # Predicted route badge
         route_color = "🟢" if s.get("predicted_route") == "small" else "🔴"
-        st.markdown(f"**Predicted route:** {route_color} {s.get('predicted_route', '—').title()} model")
+        st.markdown(f"**Current prediction:** {route_color} {s.get('predicted_route', '—').title()} model")
         st.markdown(f"**Category:** `{s.get('category', '—')}`")
         st.markdown(f"**Difficulty:** `{s.get('predicted_difficulty', 0):.1f}`")
 
-        st.divider()
-        st.markdown("**Suggested rewrite:**")
-        st.info(s.get("rewrite", ""))
+        # Show optimization if different from original
+        if s.get("rewrite") and s.get("rewrite") != current_prompt:
+            st.divider()
+            st.markdown("**Optimized version:**")
+            st.info(s.get("rewrite", ""))
 
-        st.markdown("**Why:**")
-        st.caption(s.get("explanation", ""))
+            st.markdown("**Why:**")
+            st.caption(s.get("explanation", ""))
 
-        # One-click copy to main input
-        if st.button("⬆ Use this prompt", use_container_width=True):
-            st.session_state["sidebar_copied_prompt"] = s.get("rewrite", "")
-            st.success("Copied! Paste into the main input.")
+            # One-click apply button
+            if st.button("✨ Use optimized prompt", use_container_width=True, type="primary"):
+                st.session_state["sidebar_copied_prompt"] = s.get("rewrite", "")
+                st.session_state.last_analyzed_prompt = ""  # Reset to trigger re-analysis
+                st.rerun()
+        else:
+            st.caption(s.get("explanation", ""))
+    
+    elif not current_prompt:
+        st.info("👈 Enter a prompt in the main input to see optimization suggestions")
+    
+    # Manual refresh button
+    st.divider()
+    if st.button("🔄 Re-analyze", use_container_width=True):
+        st.session_state.last_analyzed_prompt = ""  # Force re-analysis
+        st.rerun()
