@@ -133,13 +133,92 @@ def handle_submit(prompt: str, force_escalate: bool):
 
 
 def optimize_prompt(prompt: str) -> str:
-    """Optimize the prompt using local Ollama LLM."""
+    """Optimize the prompt using CopilotKit service."""
+    print("\n" + "="*80)
+    print("[OPTIMIZE] Starting optimization process")
+    print(f"[OPTIMIZE] Original prompt: '{prompt}'")
+    print(f"[OPTIMIZE] Original length: {len(prompt)} chars")
+    print(f"[OPTIMIZE] Threshold context: {st.session_state.sliders}")
+    print("="*80)
+    
+    try:
+        import requests
+        
+        # Get threshold context from session state
+        context = {
+            "thresholds": st.session_state.sliders
+        }
+        
+        print("[OPTIMIZE] Calling CopilotKit service at http://localhost:3001/api/optimize-prompt")
+        
+        # Call CopilotKit service
+        response = requests.post(
+            'http://localhost:3001/api/optimize-prompt',
+            json={
+                'prompt': prompt,
+                'context': context
+            },
+            timeout=30
+        )
+        
+        print(f"[OPTIMIZE] Response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"[OPTIMIZE] Response JSON: {result}")
+            
+            if result.get('success') and result.get('optimized'):
+                optimized = result['optimized'].strip()
+                
+                # Debug logging
+                print(f"[OPTIMIZE] ✅ SUCCESS!")
+                print(f"[OPTIMIZE] Optimized prompt: '{optimized}'")
+                print(f"[OPTIMIZE] Optimized length: {len(optimized)} chars")
+                print(f"[OPTIMIZE] Context used: {result['metadata'].get('contextUsed', False)}")
+                print(f"[OPTIMIZE] Model: {result['metadata'].get('model', 'unknown')}")
+                print(f"[OPTIMIZE] Length change: {len(prompt)} → {len(optimized)} ({len(optimized) - len(prompt):+d})")
+                
+                if optimized and len(optimized) > 10:
+                    print(f"[OPTIMIZE] Returning optimized prompt")
+                    print("="*80 + "\n")
+                    return optimized
+                else:
+                    print("[OPTIMIZE] ⚠️ Response too short, returning original")
+                    print("="*80 + "\n")
+                    return prompt
+            else:
+                print(f"[OPTIMIZE] ❌ API returned unsuccessful response")
+                print("="*80 + "\n")
+                return prompt
+        else:
+            print(f"[OPTIMIZE] ❌ API call failed with status {response.status_code}")
+            print("="*80 + "\n")
+            return prompt
+            
+    except requests.exceptions.ConnectionError as e:
+        # CopilotKit service not running - use Ollama fallback
+        print(f"[OPTIMIZE] ❌ Connection error: {e}")
+        print("[OPTIMIZE] Using Ollama fallback")
+        print("="*80 + "\n")
+        return _optimize_with_ollama(prompt)
+    except requests.exceptions.Timeout:
+        print("[OPTIMIZE] ❌ Timeout, returning original")
+        print("="*80 + "\n")
+        return prompt
+    except Exception as e:
+        print(f"[OPTIMIZE] ❌ Error: {e}, using Ollama fallback")
+        print("="*80 + "\n")
+        return _optimize_with_ollama(prompt)
+
+
+def _optimize_with_ollama(prompt: str) -> str:
+    """Fallback: Direct Ollama optimization when CopilotKit service is unavailable."""
     try:
         import requests
         
         system_prompt = """You are an expert Prompt Engineer. Rewrite the user's input to be more detailed, structured, and effective. Improve clarity and add necessary constraints. Return ONLY the improved prompt text without any preamble or explanation."""
         
-        # Call Ollama API
+        # Call Ollama API directly
         response = requests.post(
             'http://localhost:11434/api/generate',
             json={
@@ -158,34 +237,17 @@ def optimize_prompt(prompt: str) -> str:
             result = response.json()
             optimized = result.get('response', '').strip()
             
-            # Debug: print to console
-            print(f"[OPTIMIZER] Original length: {len(prompt)}")
-            print(f"[OPTIMIZER] Optimized length: {len(optimized)}")
-            print(f"[OPTIMIZER] First 100 chars: {optimized[:100]}...")
+            print(f"[OLLAMA FALLBACK] Optimized length: {len(optimized)}")
             
-            # If we got a valid response, return it
             if optimized and len(optimized) > 10:
                 return optimized
             else:
-                # Fallback to original if response is too short
-                print("[OPTIMIZER] Response too short, returning original")
                 return prompt
         else:
-            # If API call fails, return original
-            print(f"[OPTIMIZER] API call failed with status {response.status_code}")
             return prompt
             
-    except requests.exceptions.ConnectionError:
-        # Ollama not running - use stub fallback
-        print("[OPTIMIZER] Connection error, using stub fallback")
-        return _stub_optimize(prompt)
-    except requests.exceptions.Timeout:
-        # Timeout - return original
-        print("[OPTIMIZER] Timeout, returning original")
-        return prompt
     except Exception as e:
-        # Any other error - use stub fallback
-        print(f"[OPTIMIZER] Error: {e}, using stub fallback")
+        print(f"[OLLAMA FALLBACK] Error: {e}, using stub")
         return _stub_optimize(prompt)
 
 
@@ -426,22 +488,71 @@ with left_col:
     # ── Input section ──
     st.markdown('<p class="section-title">Input</p>', unsafe_allow_html=True)
 
+    # Use session state for selectbox to control it programmatically
+    if "selected_demo" not in st.session_state:
+        st.session_state.selected_demo = 0
+    
+    print("\n" + "🔽"*40)
+    print("[UI] SELECTBOX STATE")
+    print(f"[UI] selected_demo in session_state: {st.session_state.selected_demo}")
+    print(f"[UI] Setting selectbox index to: {st.session_state.selected_demo}")
+    print("🔽"*40 + "\n")
+    
     selected = st.selectbox(
         "Demo prompt",
         options=range(len(DEMO_PROMPTS)),
         format_func=lambda i: DEMO_PROMPTS[i]["label"],
         label_visibility="collapsed",
+        key="demo_selector",
+        index=st.session_state.selected_demo
     )
-    st.session_state.selected_demo = selected
+    
+    print("\n" + "🔼"*40)
+    print("[UI] SELECTBOX RETURNED")
+    print(f"[UI] User selected: {selected}")
+    print(f"[UI] Current selected_demo: {st.session_state.selected_demo}")
+    print(f"[UI] optimizing flag: {st.session_state.get('optimizing', False)}")
+    print("🔼"*40 + "\n")
+    
+    # Only update selected_demo if user manually changed it (not from optimization)
+    if selected != st.session_state.selected_demo and not st.session_state.get("optimizing"):
+        print(f"[UI] ⚠️ User manually changed demo from {st.session_state.selected_demo} to {selected}")
+        st.session_state.selected_demo = selected
+        # Clear sidebar_copied_prompt when user selects a different demo
+        if st.session_state.get("sidebar_copied_prompt"):
+            print("[UI] User changed demo, clearing sidebar_copied_prompt")
+            st.session_state.sidebar_copied_prompt = ""
 
-    is_custom = DEMO_PROMPTS[selected]["label"] == "Custom..."
+    is_custom = DEMO_PROMPTS[st.session_state.selected_demo]["label"] == "Custom..."
+    
     # Prioritize sidebar_copied_prompt (from optimization) over demo prompts
+    print("\n" + "📋"*40)
+    print("[UI] CALCULATING prompt_value")
+    print(f"[UI] selected_demo: {st.session_state.selected_demo}")
+    print(f"[UI] is_custom: {is_custom}")
+    print(f"[UI] sidebar_copied_prompt exists: {bool(st.session_state.get('sidebar_copied_prompt'))}")
+    
     if st.session_state.get("sidebar_copied_prompt"):
         prompt_value = st.session_state.sidebar_copied_prompt
+        print(f"[UI] ✅ Using sidebar_copied_prompt: '{prompt_value[:50]}...'")
     elif is_custom:
         prompt_value = ""
+        print(f"[UI] Using empty string (custom mode)")
     else:
-        prompt_value = DEMO_PROMPTS[selected]["prompt"]
+        prompt_value = DEMO_PROMPTS[st.session_state.selected_demo]["prompt"]
+        print(f"[UI] Using demo prompt: '{prompt_value[:50]}...'")
+    
+    print(f"[UI] Final prompt_value length: {len(prompt_value)}")
+    print("📋"*40 + "\n")
+
+    print("\n" + "🎯"*40)
+    print("[UI] CREATING TEXT AREA WIDGET")
+    print(f"[UI] Widget key: 'main_prompt_input'")
+    print(f"[UI] Widget value parameter: '{prompt_value[:100]}...' (length: {len(prompt_value)})")
+    print(f"[UI] Widget exists in session_state: {'main_prompt_input' in st.session_state}")
+    if "main_prompt_input" in st.session_state:
+        print(f"[UI] Current widget state value: '{st.session_state.main_prompt_input[:100]}...'")
+    print("🎯"*40 + "\n")
 
     prompt = st.text_area(
         "Prompt",
@@ -451,6 +562,12 @@ with left_col:
         key="main_prompt_input",
         label_visibility="collapsed",
     )
+    
+    print("\n" + "📝"*40)
+    print("[UI] TEXT AREA WIDGET RENDERED")
+    print(f"[UI] Returned prompt value: '{prompt[:100]}...' (length: {len(prompt)})")
+    print(f"[UI] Widget state after render: '{st.session_state.main_prompt_input[:100]}...'")
+    print("📝"*40 + "\n")
 
     # Toolbar row: Optimize / Undo
     tool_cols = st.columns([1, 1, 4])
@@ -493,15 +610,58 @@ with left_col:
 
     # Perform optimization
     if st.session_state.optimizing:
+        print("\n" + "🔄"*40)
+        print("[UI] OPTIMIZATION EXECUTION STARTED")
+        print(f"[UI] Original prompt from session: '{st.session_state.original_prompt}'")
+        print(f"[UI] Current sidebar_copied_prompt: '{st.session_state.get('sidebar_copied_prompt', 'NOT SET')}'")
+        print(f"[UI] Current main_prompt_input: '{st.session_state.get('main_prompt_input', 'NOT SET')}'")
+        print("🔄"*40)
+        
         with st.spinner("🔄 Optimizing your prompt..."):
             optimized = optimize_prompt(st.session_state.original_prompt)
+            
+            print("\n" + "💾"*40)
+            print("[UI] UPDATING SESSION STATE")
+            print(f"[UI] Optimized result: '{optimized}'")
+            print(f"[UI] Setting sidebar_copied_prompt = '{optimized}'")
+            
             # Update the session state
             st.session_state.sidebar_copied_prompt = optimized
+            
+            print(f"[UI] After update, sidebar_copied_prompt = '{st.session_state.sidebar_copied_prompt}'")
+            print(f"[UI] Setting optimizing = False")
+            
             st.session_state.optimizing = False
+            
             # Clear the selected demo to force custom mode
+            print(f"[UI] Setting selected_demo to {len(DEMO_PROMPTS) - 1} (Custom...)")
             st.session_state.selected_demo = len(DEMO_PROMPTS) - 1  # Set to "Custom..."
+            
+            # CRITICAL: Delete the text_area widget state to force it to re-render with new value
+            print("[UI] Deleting main_prompt_input from session state to force re-render")
+            if "main_prompt_input" in st.session_state:
+                del st.session_state["main_prompt_input"]
+                print("[UI] ✅ main_prompt_input deleted")
+            else:
+                print("[UI] ⚠️ main_prompt_input was not in session state")
+            
+            # CRITICAL: Also delete the selectbox widget state
+            print("[UI] Deleting demo_selector from session state to force re-render")
+            if "demo_selector" in st.session_state:
+                del st.session_state["demo_selector"]
+                print("[UI] ✅ demo_selector deleted")
+            else:
+                print("[UI] ⚠️ demo_selector was not in session state")
+            
+            print("💾"*40 + "\n")
+            
             st.success(f"✨ Prompt optimized! (Length: {len(st.session_state.original_prompt)} → {len(optimized)})")
             time.sleep(1)
+            
+            print("\n" + "🔄"*40)
+            print("[UI] CALLING st.rerun() to refresh UI")
+            print("🔄"*40 + "\n")
+            
             st.rerun()
 
     # Action buttons
