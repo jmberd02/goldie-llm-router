@@ -76,8 +76,42 @@ def check_bedrock():
 
 
 def check_datadog():
-    """Datadog integration disabled for now."""
-    print("⊘ Datadog check skipped (disabled)")
+    """Plan §4.5: if DD_API_KEY set, optionally ping Datadog (Metrics API v2); do not block on failure."""
+    raw_key = os.getenv("DD_API_KEY", "")
+    if not raw_key.strip():
+        print("⊘ Datadog disabled (no DD_API_KEY); observability to stdout only")
+        # Debug: help spot .env typos or wrong var name (never print the key value)
+        dd_keys = [k for k in os.environ if k.startswith("DD_")]
+        print(f"  Debug: DD_API_KEY length={len(raw_key)}; DD_* vars in env: {dd_keys or '(none)'}")
+        return
+    try:
+        from datadog_api_client import ApiClient, Configuration
+        from datadog_api_client.v2.api import metrics_api
+        from datadog_api_client.v2.model.metric_payload import MetricPayload
+        from datadog_api_client.v2.model.metric_series import MetricSeries
+        from datadog_api_client.v2.model.metric_point import MetricPoint
+        from datadog_api_client.v2.model.metric_intake_type import MetricIntakeType
+        import time as _time
+        configuration = Configuration()
+        with ApiClient(configuration) as api_client:
+            api_instance = metrics_api.MetricsApi(api_client)
+            body = MetricPayload(
+                series=[
+                    MetricSeries(
+                        metric="llm_router.startup.check",
+                        type=MetricIntakeType.GAUGE,
+                        points=[MetricPoint(timestamp=int(_time.time()), value=1.0)],
+                        tags=["service:llm_router"],
+                    )
+                ]
+            )
+            api_instance.submit_metrics(body=body)
+        print("✓ Datadog enabled (metrics + logs)")
+    except ImportError:
+        print("⊘ Datadog disabled (datadog-api-client not installed); observability to stdout only")
+    except Exception as e:
+        print(f"⚠ Datadog configured but startup check failed: {e}")
+        print("  Routing will continue; observability may fall back to stdout.")
 
 
 def check_neo4j():
