@@ -223,11 +223,13 @@ st.set_page_config(
 )
 
 # Skip startup checks in stub mode
-try:
-    import startup
-    startup.run()
-except:
-    pass
+if "startup_complete" not in st.session_state:
+    try:
+        import startup
+        startup.run()
+        st.session_state.startup_complete = True
+    except:
+        st.session_state.startup_complete = True  # Don't retry on every rerun
 
 # Session state
 if "history" not in st.session_state:
